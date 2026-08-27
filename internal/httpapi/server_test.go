@@ -127,6 +127,58 @@ func TestHandleDelete(t *testing.T) {
 	}
 }
 
+func TestHandlePutRejectsKeyContainingSlash(t *testing.T) {
+	svc := &fakeKVService{}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+
+	req := httptest.NewRequest(http.MethodPut, "/kv/foo%2Fbar", strings.NewReader("bar"))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestHandleGetRejectsOversizedKey(t *testing.T) {
+	svc := &fakeKVService{}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+
+	req := httptest.NewRequest(http.MethodGet, "/kv/"+strings.Repeat("a", 513), nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestHandleDeleteRejectsKeyContainingSlash(t *testing.T) {
+	svc := &fakeKVService{}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+
+	req := httptest.NewRequest(http.MethodDelete, "/kv/foo%2Fbar", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestHandleListVersionsRejectsKeyContainingSlash(t *testing.T) {
+	svc := &fakeKVService{}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+
+	req := httptest.NewRequest(http.MethodGet, "/kv/foo%2Fbar/versions", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
 func TestHandleHealthz(t *testing.T) {
 	srv := NewServer(&fakeKVService{}, peers.NewRegistry("", nil), "")
 

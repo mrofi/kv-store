@@ -54,6 +54,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func handlePut(svc KVService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
+		if err := validateKey(key); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "failed to read body", http.StatusBadRequest)
@@ -73,6 +77,10 @@ func handlePut(svc KVService) http.HandlerFunc {
 func handleGet(svc KVService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
+		if err := validateKey(key); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		if versionID := r.URL.Query().Get("version"); versionID != "" {
 			entry, err := svc.GetVersion(r.Context(), key, versionID)
@@ -118,6 +126,10 @@ func writeGetError(w http.ResponseWriter, err error) {
 func handleListVersions(svc KVService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
+		if err := validateKey(key); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		versions, err := svc.ListVersions(r.Context(), key)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -131,6 +143,10 @@ func handleListVersions(svc KVService) http.HandlerFunc {
 func handleDelete(svc KVService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
+		if err := validateKey(key); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := svc.Delete(r.Context(), key); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
