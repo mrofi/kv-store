@@ -3,6 +3,7 @@ package kv
 import (
 	"context"
 	"errors"
+	"log"
 
 	"kvstore/internal/store"
 )
@@ -96,4 +97,40 @@ func (s *Service) GetVersion(ctx context.Context, key, versionID string) (store.
 
 func (s *Service) ListVersions(ctx context.Context, key string) ([]store.ObjectVersion, error) {
 	return s.s3.ListVersions(ctx, key)
+}
+
+// Put writes value to S3 and updates the local cache. It returns once S3
+// has durably stored the value; peer cache-warming and version pruning
+// continue asynchronously afterward and never affect the returned error.
+func (s *Service) Put(ctx context.Context, key string, value []byte) (store.Entry, error) {
+	entry, err := s.s3.Put(ctx, key, value)
+	if err != nil {
+		return store.Entry{}, err
+	}
+	s.cache.Set(key, entry)
+
+	go s.pusher.Push(context.Background(), key, entry)
+	go func() {
+		if err := s.s3.PruneToMax(context.Background(), key, s.maxVersions); err != nil {
+			log.Printf("kv: prune failed for key %q: %v", key, err)
+		}
+	}()
+
+	return entry, nil
+}
+
+func (s *Service) Delete(ctx context.Context, key string) error {
+	if err := s.s3.Delete(ctx, key); err != nil {
+		return err
+	}
+	s.cache.Delete(key)
+	return nil
+}
+
+// ApplyPush updates the local cache from a peer's cache-warm push. It
+// never touches S3 — the next Get for this key still confirms freshness
+// against S3 via Head, so an incorrect or stale push can never serve wrong
+// data, only cost a slower cache hit.
+func (s *Service) ApplyPush(key string, entry store.Entry) {
+	s.cache.Set(key, entry)
 }

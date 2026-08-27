@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"kvstore/internal/store"
 )
@@ -226,5 +227,115 @@ func TestListVersionsReturnsAll(t *testing.T) {
 	}
 	if len(versions) != 2 {
 		t.Fatalf("len(versions) = %d, want 2", len(versions))
+	}
+}
+
+func TestPutStoresInS3AndUpdatesCache(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10)
+
+	entry, err := svc.Put(context.Background(), "foo", []byte("bar"))
+	if err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	if entry.VersionID == "" {
+		t.Fatal("expected non-empty version id")
+	}
+
+	cached, ok := cache.Get("foo")
+	if !ok {
+		t.Fatal("expected cache to be populated after Put")
+	}
+	if string(cached.Value) != "bar" {
+		t.Fatalf("cached value = %q, want %q", cached.Value, "bar")
+	}
+}
+
+func TestPutBroadcastsToPusher(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	pusher := newRecordingPusher()
+	svc := NewService(cache, s3, pusher, 10)
+
+	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+
+	select {
+	case call := <-pusher.calls:
+		if call.key != "foo" || string(call.entry.Value) != "bar" {
+			t.Fatalf("unexpected push call: %+v", call)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for push")
+	}
+}
+
+func TestPutPrunesOldVersions(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 2)
+
+	for i := 0; i < 5; i++ {
+		if _, err := svc.Put(context.Background(), "foo", []byte("v")); err != nil {
+			t.Fatalf("Put returned error: %v", err)
+		}
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		versions, err := s3.ListVersions(context.Background(), "foo")
+		if err != nil {
+			t.Fatalf("ListVersions returned error: %v", err)
+		}
+		if len(versions) <= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected at most 2 versions after pruning, got %d", len(versions))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestGetAfterDeleteReturnsNotFoundAndEvictsCache(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10)
+
+	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	if err := svc.Delete(context.Background(), "foo"); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+
+	_, _, err := svc.Get(context.Background(), "foo")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+	if _, ok := cache.Get("foo"); ok {
+		t.Fatal("expected cache entry to be evicted after delete")
+	}
+}
+
+func TestApplyPushUpdatesCacheWithoutTouchingS3(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10)
+
+	pushed := store.Entry{Value: []byte("from-peer"), VersionID: "v1"}
+	svc.ApplyPush("foo", pushed)
+
+	got, ok := cache.Get("foo")
+	if !ok {
+		t.Fatal("expected cache to be populated by ApplyPush")
+	}
+	if string(got.Value) != "from-peer" {
+		t.Fatalf("cached value = %q, want from-peer", got.Value)
+	}
+	if s3.PutCalls != 0 || s3.GetCalls != 0 || s3.HeadCalls != 0 {
+		t.Fatal("ApplyPush must not touch S3")
 	}
 }
