@@ -4,8 +4,10 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -14,6 +16,14 @@ import (
 
 	"kvstore/internal/store"
 )
+
+// uniqueKey avoids cross-run collisions: the test bucket is a persistent
+// MinIO instance shared across every invocation of this suite, so a fixed
+// key name would accumulate versions from prior runs and break assertions
+// that check an exact version count.
+func uniqueKey(base string) string {
+	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+}
 
 func newTestStore(t *testing.T) *store.AWSS3Store {
 	t.Helper()
@@ -45,7 +55,7 @@ func newTestStore(t *testing.T) *store.AWSS3Store {
 func TestAWSS3StorePutGetRoundTrip(t *testing.T) {
 	s3store := newTestStore(t)
 	ctx := context.Background()
-	key := "integration-test-key"
+	key := uniqueKey("integration-test-key")
 
 	entry, err := s3store.Put(ctx, key, []byte("hello"))
 	if err != nil {
@@ -67,7 +77,7 @@ func TestAWSS3StorePutGetRoundTrip(t *testing.T) {
 func TestAWSS3StoreHeadMatchesGet(t *testing.T) {
 	s3store := newTestStore(t)
 	ctx := context.Background()
-	key := "integration-test-head"
+	key := uniqueKey("integration-test-head")
 
 	entry, err := s3store.Put(ctx, key, []byte("v1"))
 	if err != nil {
@@ -86,7 +96,7 @@ func TestAWSS3StoreHeadMatchesGet(t *testing.T) {
 func TestAWSS3StoreListVersionsAndGetVersion(t *testing.T) {
 	s3store := newTestStore(t)
 	ctx := context.Background()
-	key := "integration-test-versions"
+	key := uniqueKey("integration-test-versions")
 
 	v1, err := s3store.Put(ctx, key, []byte("v1"))
 	if err != nil {
@@ -116,7 +126,7 @@ func TestAWSS3StoreListVersionsAndGetVersion(t *testing.T) {
 func TestAWSS3StoreDeleteThenGetNotFound(t *testing.T) {
 	s3store := newTestStore(t)
 	ctx := context.Background()
-	key := "integration-test-delete"
+	key := uniqueKey("integration-test-delete")
 
 	if _, err := s3store.Put(ctx, key, []byte("v1")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
@@ -133,7 +143,7 @@ func TestAWSS3StoreDeleteThenGetNotFound(t *testing.T) {
 func TestAWSS3StorePruneToMax(t *testing.T) {
 	s3store := newTestStore(t)
 	ctx := context.Background()
-	key := "integration-test-prune"
+	key := uniqueKey("integration-test-prune")
 
 	for i := 0; i < 5; i++ {
 		if _, err := s3store.Put(ctx, key, []byte("v")); err != nil {
