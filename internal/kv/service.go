@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"time"
 
 	"kvstore/internal/store"
 )
@@ -30,13 +31,28 @@ type Service struct {
 	s3          store.S3Store
 	pusher      Pusher
 	maxVersions int
+	cacheTTL    time.Duration
 }
 
-func NewService(cache *store.Cache, s3 store.S3Store, pusher Pusher, maxVersions int) *Service {
+// cacheTTL, when greater than zero, lets a cache hit skip the S3 Head
+// check entirely as long as it was cached within the TTL window —
+// trading a bounded amount of staleness for avoiding a network round
+// trip on every single read. Zero disables this and always confirms
+// freshness via Head, as before.
+func NewService(cache *store.Cache, s3 store.S3Store, pusher Pusher, maxVersions int, cacheTTL time.Duration) *Service {
 	if pusher == nil {
 		pusher = noopPusher{}
 	}
-	return &Service{cache: cache, s3: s3, pusher: pusher, maxVersions: maxVersions}
+	return &Service{cache: cache, s3: s3, pusher: pusher, maxVersions: maxVersions, cacheTTL: cacheTTL}
+}
+
+// cacheSet stamps entry with the current time as CachedAt before storing
+// it, so the TTL fast path in Get can measure how long ago this instance
+// last confirmed the entry fresh.
+func (s *Service) cacheSet(key string, entry store.Entry) store.Entry {
+	entry.CachedAt = time.Now()
+	s.cache.Set(key, entry)
+	return entry
 }
 
 // Get returns the latest value for key. stale is true only when S3 was
@@ -44,6 +60,10 @@ func NewService(cache *store.Cache, s3 store.S3Store, pusher Pusher, maxVersions
 // latest value.
 func (s *Service) Get(ctx context.Context, key string) (entry store.Entry, stale bool, err error) {
 	cached, hit := s.cache.Get(key)
+
+	if hit && s.cacheTTL > 0 && time.Since(cached.CachedAt) < s.cacheTTL {
+		return cached, false, nil
+	}
 
 	if !hit {
 		fresh, err := s.s3.Get(ctx, key)
@@ -53,7 +73,7 @@ func (s *Service) Get(ctx context.Context, key string) (entry store.Entry, stale
 			}
 			return store.Entry{}, false, ErrUnavailable
 		}
-		s.cache.Set(key, fresh)
+		fresh = s.cacheSet(key, fresh)
 		return fresh, false, nil
 	}
 
@@ -68,6 +88,7 @@ func (s *Service) Get(ctx context.Context, key string) (entry store.Entry, stale
 	}
 
 	if cached.VersionID == head.VersionID {
+		cached = s.cacheSet(key, cached)
 		return cached, false, nil
 	}
 
@@ -80,7 +101,7 @@ func (s *Service) Get(ctx context.Context, key string) (entry store.Entry, stale
 		return cached, true, nil
 	}
 
-	s.cache.Set(key, fresh)
+	fresh = s.cacheSet(key, fresh)
 	return fresh, false, nil
 }
 
@@ -107,7 +128,7 @@ func (s *Service) Put(ctx context.Context, key string, value []byte) (store.Entr
 	if err != nil {
 		return store.Entry{}, err
 	}
-	s.cache.Set(key, entry)
+	entry = s.cacheSet(key, entry)
 
 	go s.pusher.Push(context.Background(), key, entry)
 	go func() {
@@ -132,5 +153,5 @@ func (s *Service) Delete(ctx context.Context, key string) error {
 // against S3 via Head, so an incorrect or stale push can never serve wrong
 // data, only cost a slower cache hit.
 func (s *Service) ApplyPush(key string, entry store.Entry) {
-	s.cache.Set(key, entry)
+	s.cacheSet(key, entry)
 }

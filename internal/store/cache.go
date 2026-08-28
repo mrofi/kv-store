@@ -10,6 +10,13 @@ type Entry struct {
 	VersionID string
 	ETag      string
 	UpdatedAt time.Time
+
+	// CachedAt is when this instance last confirmed the entry fresh
+	// (via a write, a peer push, or an S3 Head match) — distinct from
+	// UpdatedAt, which is S3's own object modification time. Only
+	// kv.Service reads or writes this field; S3Store implementations
+	// leave it zero.
+	CachedAt time.Time
 }
 
 type Cache struct {

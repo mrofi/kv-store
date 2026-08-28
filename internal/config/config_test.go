@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadRequiresS3Bucket(t *testing.T) {
 	_, err := Load()
@@ -27,6 +30,31 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if len(cfg.Peers) != 0 {
 		t.Fatalf("Peers = %v, want empty", cfg.Peers)
+	}
+	if cfg.CacheTTL != 0 {
+		t.Fatalf("CacheTTL = %v, want 0 (disabled by default)", cfg.CacheTTL)
+	}
+}
+
+func TestLoadParsesCacheTTL(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("CACHE_TTL", "2s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.CacheTTL != 2*time.Second {
+		t.Fatalf("CacheTTL = %v, want 2s", cfg.CacheTTL)
+	}
+}
+
+func TestLoadRejectsInvalidCacheTTL(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("CACHE_TTL", "not-a-duration")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for invalid CACHE_TTL")
 	}
 }
 

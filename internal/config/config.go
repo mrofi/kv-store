@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -15,6 +16,7 @@ type Config struct {
 	Peers             []string
 	MaxVersions       int
 	InternalAuthToken string
+	CacheTTL          time.Duration
 }
 
 func Load() (Config, error) {
@@ -48,6 +50,14 @@ func Load() (Config, error) {
 	}
 
 	cfg.InternalAuthToken = os.Getenv("INTERNAL_AUTH_TOKEN")
+
+	if raw := os.Getenv("CACHE_TTL"); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid CACHE_TTL %q: %w", raw, err)
+		}
+		cfg.CacheTTL = d
+	}
 
 	return cfg, nil
 }

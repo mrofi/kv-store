@@ -34,7 +34,7 @@ func TestGetCacheHitAvoidsBodyFetch(t *testing.T) {
 		t.Fatalf("Put returned error: %v", err)
 	}
 	cache.Set("foo", entry)
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	s3.HeadCalls = 0
 	s3.GetCalls = 0
@@ -63,7 +63,7 @@ func TestGetCacheMissFetchesDirectlyWithoutHead(t *testing.T) {
 	if _, err := s3.Put(context.Background(), "foo", []byte("bar")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
 	}
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	got, stale, err := svc.Get(context.Background(), "foo")
 	if err != nil {
@@ -96,7 +96,7 @@ func TestGetCacheStaleRefetches(t *testing.T) {
 	if _, err := s3.Put(context.Background(), "foo", []byte("v2")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
 	}
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	got, stale, err := svc.Get(context.Background(), "foo")
 	if err != nil {
@@ -113,7 +113,7 @@ func TestGetCacheStaleRefetches(t *testing.T) {
 func TestGetNotFound(t *testing.T) {
 	cache := store.NewCache()
 	s3 := store.NewFakeS3Store()
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	_, _, err := svc.Get(context.Background(), "missing")
 	if !errors.Is(err, ErrNotFound) {
@@ -129,7 +129,7 @@ func TestGetServesStaleCacheWhenS3Unreachable(t *testing.T) {
 		t.Fatalf("Put returned error: %v", err)
 	}
 	cache.Set("foo", entry)
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	s3.HeadErr = errors.New("simulated network error")
 	got, stale, err := svc.Get(context.Background(), "foo")
@@ -148,7 +148,7 @@ func TestGetUnavailableWhenS3DownAndNoCache(t *testing.T) {
 	cache := store.NewCache()
 	s3 := store.NewFakeS3Store()
 	s3.GetErr = errors.New("simulated network error")
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	_, _, err := svc.Get(context.Background(), "foo")
 	if !errors.Is(err, ErrUnavailable) {
@@ -167,7 +167,7 @@ func TestGetCacheHitButKeyNowDeletedInS3(t *testing.T) {
 	if err := s3.Delete(context.Background(), "foo"); err != nil {
 		t.Fatalf("Delete returned error: %v", err)
 	}
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	_, _, err = svc.Get(context.Background(), "foo")
 	if !errors.Is(err, ErrNotFound) {
@@ -188,7 +188,7 @@ func TestGetVersionReturnsSpecificVersion(t *testing.T) {
 	if _, err := s3.Put(context.Background(), "foo", []byte("v2")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
 	}
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	got, err := svc.GetVersion(context.Background(), "foo", v1.VersionID)
 	if err != nil {
@@ -202,7 +202,7 @@ func TestGetVersionReturnsSpecificVersion(t *testing.T) {
 func TestGetVersionNotFound(t *testing.T) {
 	cache := store.NewCache()
 	s3 := store.NewFakeS3Store()
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	_, err := svc.GetVersion(context.Background(), "foo", "nonexistent")
 	if !errors.Is(err, ErrNotFound) {
@@ -219,7 +219,7 @@ func TestListVersionsReturnsAll(t *testing.T) {
 	if _, err := s3.Put(context.Background(), "foo", []byte("v2")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
 	}
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	versions, err := svc.ListVersions(context.Background(), "foo")
 	if err != nil {
@@ -233,7 +233,7 @@ func TestListVersionsReturnsAll(t *testing.T) {
 func TestPutStoresInS3AndUpdatesCache(t *testing.T) {
 	cache := store.NewCache()
 	s3 := store.NewFakeS3Store()
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	entry, err := svc.Put(context.Background(), "foo", []byte("bar"))
 	if err != nil {
@@ -256,7 +256,7 @@ func TestPutBroadcastsToPusher(t *testing.T) {
 	cache := store.NewCache()
 	s3 := store.NewFakeS3Store()
 	pusher := newRecordingPusher()
-	svc := NewService(cache, s3, pusher, 10)
+	svc := NewService(cache, s3, pusher, 10, 0)
 
 	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
@@ -275,7 +275,7 @@ func TestPutBroadcastsToPusher(t *testing.T) {
 func TestPutPrunesOldVersions(t *testing.T) {
 	cache := store.NewCache()
 	s3 := store.NewFakeS3Store()
-	svc := NewService(cache, s3, newRecordingPusher(), 2)
+	svc := NewService(cache, s3, newRecordingPusher(), 2, 0)
 
 	for i := 0; i < 5; i++ {
 		if _, err := svc.Put(context.Background(), "foo", []byte("v")); err != nil {
@@ -302,7 +302,7 @@ func TestPutPrunesOldVersions(t *testing.T) {
 func TestGetAfterDeleteReturnsNotFoundAndEvictsCache(t *testing.T) {
 	cache := store.NewCache()
 	s3 := store.NewFakeS3Store()
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
@@ -323,7 +323,7 @@ func TestGetAfterDeleteReturnsNotFoundAndEvictsCache(t *testing.T) {
 func TestApplyPushUpdatesCacheWithoutTouchingS3(t *testing.T) {
 	cache := store.NewCache()
 	s3 := store.NewFakeS3Store()
-	svc := NewService(cache, s3, newRecordingPusher(), 10)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
 	pushed := store.Entry{Value: []byte("from-peer"), VersionID: "v1"}
 	svc.ApplyPush("foo", pushed)
@@ -337,5 +337,150 @@ func TestApplyPushUpdatesCacheWithoutTouchingS3(t *testing.T) {
 	}
 	if s3.PutCalls != 0 || s3.GetCalls != 0 || s3.HeadCalls != 0 {
 		t.Fatal("ApplyPush must not touch S3")
+	}
+}
+
+func TestGetWithinTTLSkipsS3Entirely(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
+	if err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	entry.CachedAt = time.Now()
+	cache.Set("foo", entry)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
+
+	s3.HeadCalls = 0
+	s3.GetCalls = 0
+
+	got, stale, err := svc.Get(context.Background(), "foo")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if stale {
+		t.Fatal("expected fresh result")
+	}
+	if string(got.Value) != "bar" {
+		t.Fatalf("got value %q, want %q", got.Value, "bar")
+	}
+	if s3.HeadCalls != 0 || s3.GetCalls != 0 {
+		t.Fatalf("expected zero S3 calls within TTL window, got head=%d get=%d", s3.HeadCalls, s3.GetCalls)
+	}
+}
+
+func TestGetPastTTLFallsBackToHeadCheck(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
+	if err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	entry.CachedAt = time.Now().Add(-time.Hour)
+	cache.Set("foo", entry)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Second)
+
+	got, stale, err := svc.Get(context.Background(), "foo")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if stale {
+		t.Fatal("expected fresh result")
+	}
+	if string(got.Value) != "bar" {
+		t.Fatalf("got value %q, want %q", got.Value, "bar")
+	}
+	if s3.HeadCalls != 1 {
+		t.Fatalf("expected exactly 1 HeadObject call once TTL has expired, got %d", s3.HeadCalls)
+	}
+}
+
+func TestGetTTLDisabledAlwaysChecksHead(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
+	if err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	entry.CachedAt = time.Now()
+	cache.Set("foo", entry)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
+
+	if _, _, err := svc.Get(context.Background(), "foo"); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if s3.HeadCalls != 1 {
+		t.Fatalf("expected TTL=0 to always check Head, got %d calls", s3.HeadCalls)
+	}
+}
+
+func TestHeadMatchRefreshesCachedAtExtendingTTLWindow(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
+	if err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	entry.CachedAt = time.Now().Add(-time.Hour)
+	cache.Set("foo", entry)
+	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
+
+	// First Get is past the TTL window, so it falls through to a Head
+	// check; since the version still matches, CachedAt should refresh.
+	if _, _, err := svc.Get(context.Background(), "foo"); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if s3.HeadCalls != 1 {
+		t.Fatalf("expected the first Get to perform exactly 1 Head check, got %d", s3.HeadCalls)
+	}
+
+	s3.HeadCalls = 0
+
+	// A second Get should now be within the freshly-extended TTL window
+	// and skip S3 entirely.
+	if _, _, err := svc.Get(context.Background(), "foo"); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if s3.HeadCalls != 0 {
+		t.Fatalf("expected the second Get to skip Head after CachedAt refresh, got %d calls", s3.HeadCalls)
+	}
+}
+
+func TestPutStampsCachedAtEnablingTTLFastPath(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
+
+	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+
+	if _, _, err := svc.Get(context.Background(), "foo"); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if s3.HeadCalls != 0 || s3.GetCalls != 0 {
+		t.Fatalf("expected Put to enable the TTL fast path, got head=%d get=%d", s3.HeadCalls, s3.GetCalls)
+	}
+}
+
+func TestApplyPushStampsCachedAtEnablingTTLFastPath(t *testing.T) {
+	cache := store.NewCache()
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
+
+	svc.ApplyPush("foo", store.Entry{Value: []byte("from-peer"), VersionID: "v1"})
+
+	got, stale, err := svc.Get(context.Background(), "foo")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if stale {
+		t.Fatal("expected fresh result")
+	}
+	if string(got.Value) != "from-peer" {
+		t.Fatalf("got value %q, want from-peer", got.Value)
+	}
+	if s3.HeadCalls != 0 || s3.GetCalls != 0 {
+		t.Fatalf("expected ApplyPush to enable the TTL fast path, got head=%d get=%d", s3.HeadCalls, s3.GetCalls)
 	}
 }

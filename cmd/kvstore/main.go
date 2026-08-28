@@ -32,7 +32,7 @@ func main() {
 	s3Store := store.NewAWSS3Store(s3Client, cfg.S3Bucket)
 	registry := peers.NewRegistry(cfg.SelfAddr, cfg.Peers)
 	pusher := peers.NewHTTPPusher(registry, cfg.InternalAuthToken, 2*time.Second)
-	svc := kv.NewService(cache, s3Store, pusher, cfg.MaxVersions)
+	svc := kv.NewService(cache, s3Store, pusher, cfg.MaxVersions, cfg.CacheTTL)
 
 	server := httpapi.NewServer(svc, registry, cfg.InternalAuthToken)
 
