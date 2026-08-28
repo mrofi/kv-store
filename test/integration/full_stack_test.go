@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,14 @@ const (
 	authToken = "test-secret"
 	bucket    = "kv-store-test"
 )
+
+// uniqueKey avoids cross-run collisions: the test bucket is a persistent
+// MinIO instance shared across every invocation of this suite, so a fixed
+// key name would accumulate history from prior runs and break assertions
+// (and convergence timing) that depend on a key's exact version count.
+func uniqueKey(base string) string {
+	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+}
 
 type instance struct {
 	server   *httptest.Server
@@ -52,7 +61,7 @@ func newInstance(t *testing.T) *instance {
 	s3Store := store.NewAWSS3Store(client, bucket)
 	registry := peers.NewRegistry("", nil)
 	pusher := peers.NewHTTPPusher(registry, authToken, 2*time.Second)
-	svc := kv.NewService(cache, s3Store, pusher, 10)
+	svc := kv.NewService(cache, s3Store, pusher, 10, 0)
 	srv := httpapi.NewServer(svc, registry, authToken)
 
 	return &instance{server: httptest.NewServer(srv), registry: registry}
@@ -97,11 +106,12 @@ func TestWritePropagatesToPeerViaPush(t *testing.T) {
 	a.registry.Set([]string{b.server.URL})
 	b.registry.Set([]string{a.server.URL})
 
-	put(t, a.server.URL, "push-key", "hello")
+	key := uniqueKey("push-key")
+	put(t, a.server.URL, key, "hello")
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		body, status := get(t, b.server.URL, "push-key")
+		body, status := get(t, b.server.URL, key)
 		if status == http.StatusOK && body == "hello" {
 			break
 		}
@@ -120,12 +130,13 @@ func TestWriteVisibleViaHeadFallbackWhenPushFails(t *testing.T) {
 	// push always fails; a fresh instance B should still see the write
 	// via its own Head-check against S3 rather than depending on the push.
 	a.registry.Set([]string{"http://127.0.0.1:1"})
-	put(t, a.server.URL, "no-push-key", "still-here")
+	key := uniqueKey("no-push-key")
+	put(t, a.server.URL, key, "still-here")
 
 	b := newInstance(t)
 	defer b.server.Close()
 
-	body, status := get(t, b.server.URL, "no-push-key")
+	body, status := get(t, b.server.URL, key)
 	if status != http.StatusOK || body != "still-here" {
 		t.Fatalf("GET on B = (%d, %q), want (200, still-here)", status, body)
 	}
@@ -135,13 +146,14 @@ func TestVersionCapEnforcedEndToEnd(t *testing.T) {
 	a := newInstance(t)
 	defer a.server.Close()
 
+	key := uniqueKey("capped-key")
 	for i := 0; i < 15; i++ {
-		put(t, a.server.URL, "capped-key", "v")
+		put(t, a.server.URL, key, "v")
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		resp, err := http.Get(a.server.URL + "/kv/capped-key/versions")
+		resp, err := http.Get(a.server.URL + "/kv/" + key + "/versions")
 		if err != nil {
 			t.Fatalf("GET versions failed: %v", err)
 		}
@@ -165,9 +177,10 @@ func TestDeleteThenGetReturnsNotFound(t *testing.T) {
 	a := newInstance(t)
 	defer a.server.Close()
 
-	put(t, a.server.URL, "delete-key", "gone-soon")
+	key := uniqueKey("delete-key")
+	put(t, a.server.URL, key, "gone-soon")
 
-	req, err := http.NewRequest(http.MethodDelete, a.server.URL+"/kv/delete-key", nil)
+	req, err := http.NewRequest(http.MethodDelete, a.server.URL+"/kv/"+key, nil)
 	if err != nil {
 		t.Fatalf("building DELETE request failed: %v", err)
 	}
@@ -177,7 +190,7 @@ func TestDeleteThenGetReturnsNotFound(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	_, status := get(t, a.server.URL, "delete-key")
+	_, status := get(t, a.server.URL, key)
 	if status != http.StatusNotFound {
 		t.Fatalf("GET after delete status = %d, want 404", status)
 	}
