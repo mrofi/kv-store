@@ -1,6 +1,7 @@
 package store
 
 import (
+	"container/list"
 	"sync"
 	"time"
 )
@@ -19,30 +20,73 @@ type Entry struct {
 	CachedAt time.Time
 }
 
-type Cache struct {
-	mu   sync.RWMutex
-	data map[string]Entry
+type cacheItem struct {
+	key   string
+	entry Entry
 }
 
-func NewCache() *Cache {
-	return &Cache{data: make(map[string]Entry)}
+// Cache is an in-memory, LRU-evicting store for Entry values. When
+// maxEntries is 0 (or negative), it never evicts and grows unbounded —
+// matching the behavior before eviction existed. Get counts as a "use"
+// and refreshes an entry's recency, same as Set.
+type Cache struct {
+	mu         sync.Mutex
+	maxEntries int
+	order      *list.List
+	items      map[string]*list.Element
+}
+
+func NewCache(maxEntries int) *Cache {
+	return &Cache{
+		maxEntries: maxEntries,
+		order:      list.New(),
+		items:      make(map[string]*list.Element),
+	}
 }
 
 func (c *Cache) Get(key string) (Entry, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	e, ok := c.data[key]
-	return e, ok
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el, ok := c.items[key]
+	if !ok {
+		return Entry{}, false
+	}
+	c.order.MoveToFront(el)
+	return el.Value.(*cacheItem).entry, true
 }
 
 func (c *Cache) Set(key string, entry Entry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.data[key] = entry
+
+	if el, ok := c.items[key]; ok {
+		el.Value.(*cacheItem).entry = entry
+		c.order.MoveToFront(el)
+		return
+	}
+
+	el := c.order.PushFront(&cacheItem{key: key, entry: entry})
+	c.items[key] = el
+
+	if c.maxEntries > 0 && c.order.Len() > c.maxEntries {
+		c.evictOldest()
+	}
 }
 
 func (c *Cache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.data, key)
+	if el, ok := c.items[key]; ok {
+		c.order.Remove(el)
+		delete(c.items, key)
+	}
+}
+
+func (c *Cache) evictOldest() {
+	el := c.order.Back()
+	if el == nil {
+		return
+	}
+	c.order.Remove(el)
+	delete(c.items, el.Value.(*cacheItem).key)
 }

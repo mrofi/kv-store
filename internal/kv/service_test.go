@@ -27,7 +27,7 @@ func (p *recordingPusher) Push(ctx context.Context, key string, entry store.Entr
 }
 
 func TestGetCacheHitAvoidsBodyFetch(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
 	if err != nil {
@@ -58,7 +58,7 @@ func TestGetCacheHitAvoidsBodyFetch(t *testing.T) {
 }
 
 func TestGetCacheMissFetchesDirectlyWithoutHead(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	if _, err := s3.Put(context.Background(), "foo", []byte("bar")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
@@ -84,7 +84,7 @@ func TestGetCacheMissFetchesDirectlyWithoutHead(t *testing.T) {
 }
 
 func TestGetCacheStaleRefetches(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	v1, err := s3.Put(context.Background(), "foo", []byte("v1"))
 	if err != nil {
@@ -111,7 +111,7 @@ func TestGetCacheStaleRefetches(t *testing.T) {
 }
 
 func TestGetNotFound(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
@@ -122,7 +122,7 @@ func TestGetNotFound(t *testing.T) {
 }
 
 func TestGetServesStaleCacheWhenS3Unreachable(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
 	if err != nil {
@@ -145,7 +145,7 @@ func TestGetServesStaleCacheWhenS3Unreachable(t *testing.T) {
 }
 
 func TestGetUnavailableWhenS3DownAndNoCache(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	s3.GetErr = errors.New("simulated network error")
 	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
@@ -157,7 +157,7 @@ func TestGetUnavailableWhenS3DownAndNoCache(t *testing.T) {
 }
 
 func TestGetCacheHitButKeyNowDeletedInS3(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
 	if err != nil {
@@ -179,7 +179,7 @@ func TestGetCacheHitButKeyNowDeletedInS3(t *testing.T) {
 }
 
 func TestGetVersionReturnsSpecificVersion(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	v1, err := s3.Put(context.Background(), "foo", []byte("v1"))
 	if err != nil {
@@ -200,7 +200,7 @@ func TestGetVersionReturnsSpecificVersion(t *testing.T) {
 }
 
 func TestGetVersionNotFound(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
@@ -211,7 +211,7 @@ func TestGetVersionNotFound(t *testing.T) {
 }
 
 func TestListVersionsReturnsAll(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	if _, err := s3.Put(context.Background(), "foo", []byte("v1")); err != nil {
 		t.Fatalf("Put returned error: %v", err)
@@ -231,7 +231,7 @@ func TestListVersionsReturnsAll(t *testing.T) {
 }
 
 func TestPutStoresInS3AndUpdatesCache(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
@@ -253,7 +253,7 @@ func TestPutStoresInS3AndUpdatesCache(t *testing.T) {
 }
 
 func TestPutBroadcastsToPusher(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	pusher := newRecordingPusher()
 	svc := NewService(cache, s3, pusher, 10, 0)
@@ -273,7 +273,7 @@ func TestPutBroadcastsToPusher(t *testing.T) {
 }
 
 func TestPutPrunesOldVersions(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	svc := NewService(cache, s3, newRecordingPusher(), 2, 0)
 
@@ -300,7 +300,7 @@ func TestPutPrunesOldVersions(t *testing.T) {
 }
 
 func TestGetAfterDeleteReturnsNotFoundAndEvictsCache(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
@@ -321,7 +321,7 @@ func TestGetAfterDeleteReturnsNotFoundAndEvictsCache(t *testing.T) {
 }
 
 func TestApplyPushUpdatesCacheWithoutTouchingS3(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
 
@@ -341,7 +341,7 @@ func TestApplyPushUpdatesCacheWithoutTouchingS3(t *testing.T) {
 }
 
 func TestGetWithinTTLSkipsS3Entirely(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
 	if err != nil {
@@ -370,7 +370,7 @@ func TestGetWithinTTLSkipsS3Entirely(t *testing.T) {
 }
 
 func TestGetPastTTLFallsBackToHeadCheck(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
 	if err != nil {
@@ -396,7 +396,7 @@ func TestGetPastTTLFallsBackToHeadCheck(t *testing.T) {
 }
 
 func TestGetTTLDisabledAlwaysChecksHead(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
 	if err != nil {
@@ -415,7 +415,7 @@ func TestGetTTLDisabledAlwaysChecksHead(t *testing.T) {
 }
 
 func TestHeadMatchRefreshesCachedAtExtendingTTLWindow(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	entry, err := s3.Put(context.Background(), "foo", []byte("bar"))
 	if err != nil {
@@ -447,7 +447,7 @@ func TestHeadMatchRefreshesCachedAtExtendingTTLWindow(t *testing.T) {
 }
 
 func TestPutStampsCachedAtEnablingTTLFastPath(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
 
@@ -464,7 +464,7 @@ func TestPutStampsCachedAtEnablingTTLFastPath(t *testing.T) {
 }
 
 func TestApplyPushStampsCachedAtEnablingTTLFastPath(t *testing.T) {
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
 	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
 

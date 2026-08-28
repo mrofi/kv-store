@@ -57,7 +57,7 @@ func newInstance(t *testing.T) *instance {
 		o.UsePathStyle = true
 	})
 
-	cache := store.NewCache()
+	cache := store.NewCache(0)
 	s3Store := store.NewAWSS3Store(client, bucket)
 	registry := peers.NewRegistry("", nil)
 	pusher := peers.NewHTTPPusher(registry, authToken, 2*time.Second)

@@ -19,6 +19,7 @@ type Config struct {
 	InternalAuthToken string
 	CacheTTL          time.Duration
 	EncryptionKey     []byte
+	CacheMaxEntries   int
 }
 
 func Load() (Config, error) {
@@ -70,6 +71,14 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: ENCRYPTION_KEY must decode to exactly 32 bytes, got %d", len(key))
 		}
 		cfg.EncryptionKey = key
+	}
+
+	if raw := os.Getenv("CACHE_MAX_ENTRIES"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid CACHE_MAX_ENTRIES %q: %w", raw, err)
+		}
+		cfg.CacheMaxEntries = n
 	}
 
 	return cfg, nil

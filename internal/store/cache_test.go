@@ -1,13 +1,14 @@
 package store
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 )
 
 func TestCacheSetGet(t *testing.T) {
-	c := NewCache()
+	c := NewCache(0)
 	entry := Entry{Value: []byte("bar"), VersionID: "v1", UpdatedAt: time.Now()}
 	c.Set("foo", entry)
 
@@ -21,14 +22,14 @@ func TestCacheSetGet(t *testing.T) {
 }
 
 func TestCacheMiss(t *testing.T) {
-	c := NewCache()
+	c := NewCache(0)
 	if _, ok := c.Get("missing"); ok {
 		t.Fatal("expected cache miss")
 	}
 }
 
 func TestCacheDelete(t *testing.T) {
-	c := NewCache()
+	c := NewCache(0)
 	c.Set("foo", Entry{Value: []byte("bar")})
 	c.Delete("foo")
 	if _, ok := c.Get("foo"); ok {
@@ -37,7 +38,7 @@ func TestCacheDelete(t *testing.T) {
 }
 
 func TestCacheConcurrentAccess(t *testing.T) {
-	c := NewCache()
+	c := NewCache(0)
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(2)
@@ -51,4 +52,88 @@ func TestCacheConcurrentAccess(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestCacheUnboundedWhenMaxEntriesZero(t *testing.T) {
+	c := NewCache(0)
+	for i := 0; i < 100; i++ {
+		c.Set(fmt.Sprintf("key-%d", i), Entry{Value: []byte("v")})
+	}
+	// The very first key inserted should still be present, since
+	// maxEntries=0 means no eviction ever happens.
+	if _, ok := c.Get("key-0"); !ok {
+		t.Fatal("expected the first-ever inserted key to still be present when maxEntries=0")
+	}
+}
+
+func TestCacheEvictsLeastRecentlyUsedWhenOverCapacity(t *testing.T) {
+	c := NewCache(2)
+	c.Set("a", Entry{Value: []byte("a")})
+	c.Set("b", Entry{Value: []byte("b")})
+	c.Set("c", Entry{Value: []byte("c")}) // over capacity: evicts "a" (least recently used)
+
+	if _, ok := c.Get("a"); ok {
+		t.Fatal("expected \"a\" to have been evicted")
+	}
+	if _, ok := c.Get("b"); !ok {
+		t.Fatal("expected \"b\" to still be present")
+	}
+	if _, ok := c.Get("c"); !ok {
+		t.Fatal("expected \"c\" to still be present")
+	}
+}
+
+func TestCacheGetRefreshesRecency(t *testing.T) {
+	c := NewCache(2)
+	c.Set("a", Entry{Value: []byte("a")})
+	c.Set("b", Entry{Value: []byte("b")})
+	c.Get("a")                              // "a" is now the most recently used
+	c.Set("c", Entry{Value: []byte("c")}) // over capacity: evicts "b", not "a"
+
+	if _, ok := c.Get("b"); ok {
+		t.Fatal("expected \"b\" to have been evicted since \"a\" was accessed more recently")
+	}
+	if _, ok := c.Get("a"); !ok {
+		t.Fatal("expected \"a\" to still be present")
+	}
+	if _, ok := c.Get("c"); !ok {
+		t.Fatal("expected \"c\" to still be present")
+	}
+}
+
+func TestCacheSetOnExistingKeyRefreshesRecency(t *testing.T) {
+	c := NewCache(2)
+	c.Set("a", Entry{Value: []byte("a1")})
+	c.Set("b", Entry{Value: []byte("b")})
+	c.Set("a", Entry{Value: []byte("a2")}) // updating "a" refreshes its recency
+	c.Set("c", Entry{Value: []byte("c")}) // over capacity: evicts "b", not "a"
+
+	if _, ok := c.Get("b"); ok {
+		t.Fatal("expected \"b\" to have been evicted")
+	}
+	got, ok := c.Get("a")
+	if !ok {
+		t.Fatal("expected \"a\" to still be present")
+	}
+	if string(got.Value) != "a2" {
+		t.Fatalf("got value %q, want updated value a2", got.Value)
+	}
+}
+
+func TestCacheDeleteThenRefillDoesNotResurrectDeletedKey(t *testing.T) {
+	c := NewCache(2)
+	c.Set("a", Entry{Value: []byte("a")})
+	c.Delete("a")
+	c.Set("b", Entry{Value: []byte("b")})
+	c.Set("c", Entry{Value: []byte("c")})
+
+	if _, ok := c.Get("a"); ok {
+		t.Fatal("expected \"a\" to remain deleted")
+	}
+	if _, ok := c.Get("b"); !ok {
+		t.Fatal("expected \"b\" to still be present")
+	}
+	if _, ok := c.Get("c"); !ok {
+		t.Fatal("expected \"c\" to still be present")
+	}
 }

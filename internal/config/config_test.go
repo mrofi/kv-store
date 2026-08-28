@@ -38,6 +38,31 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.EncryptionKey != nil {
 		t.Fatalf("EncryptionKey = %v, want nil (disabled by default)", cfg.EncryptionKey)
 	}
+	if cfg.CacheMaxEntries != 0 {
+		t.Fatalf("CacheMaxEntries = %d, want 0 (unbounded by default)", cfg.CacheMaxEntries)
+	}
+}
+
+func TestLoadParsesCacheMaxEntries(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("CACHE_MAX_ENTRIES", "50000")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.CacheMaxEntries != 50000 {
+		t.Fatalf("CacheMaxEntries = %d, want 50000", cfg.CacheMaxEntries)
+	}
+}
+
+func TestLoadRejectsInvalidCacheMaxEntries(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("CACHE_MAX_ENTRIES", "not-a-number")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for invalid CACHE_MAX_ENTRIES")
+	}
 }
 
 func TestLoadParsesEncryptionKey(t *testing.T) {

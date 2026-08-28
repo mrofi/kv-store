@@ -45,7 +45,7 @@ func main() {
 	}
 	s3Client := s3.NewFromConfig(awsCfg)
 
-	cache := store.NewCache()
+	cache := store.NewCache(cfg.CacheMaxEntries)
 	var s3Store store.S3Store = store.NewAWSS3Store(s3Client, cfg.S3Bucket)
 	if cfg.EncryptionKey != nil {
 		encStore, err := store.NewEncryptedS3Store(s3Store, cfg.EncryptionKey)
