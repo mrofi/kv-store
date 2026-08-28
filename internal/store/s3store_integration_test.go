@@ -162,3 +162,38 @@ func TestAWSS3StorePruneToMax(t *testing.T) {
 		t.Fatalf("len(versions) = %d, want 2", len(versions))
 	}
 }
+
+func TestEncryptedS3StoreRoundTripAgainstRealS3(t *testing.T) {
+	inner := newTestStore(t)
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	encStore, err := store.NewEncryptedS3Store(inner, key)
+	if err != nil {
+		t.Fatalf("NewEncryptedS3Store returned error: %v", err)
+	}
+
+	ctx := context.Background()
+	testKey := uniqueKey("integration-test-encrypted")
+
+	if _, err := encStore.Put(ctx, testKey, []byte("top-secret-value")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+
+	raw, err := inner.Get(ctx, testKey)
+	if err != nil {
+		t.Fatalf("inner Get returned error: %v", err)
+	}
+	if string(raw.Value) == "top-secret-value" {
+		t.Fatal("expected the real S3-compatible store to hold ciphertext, not plaintext")
+	}
+
+	got, err := encStore.Get(ctx, testKey)
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if string(got.Value) != "top-secret-value" {
+		t.Fatalf("got value %q, want top-secret-value", got.Value)
+	}
+}

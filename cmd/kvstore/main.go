@@ -29,7 +29,14 @@ func main() {
 	s3Client := s3.NewFromConfig(awsCfg)
 
 	cache := store.NewCache()
-	s3Store := store.NewAWSS3Store(s3Client, cfg.S3Bucket)
+	var s3Store store.S3Store = store.NewAWSS3Store(s3Client, cfg.S3Bucket)
+	if cfg.EncryptionKey != nil {
+		encStore, err := store.NewEncryptedS3Store(s3Store, cfg.EncryptionKey)
+		if err != nil {
+			log.Fatalf("encryption: %v", err)
+		}
+		s3Store = encStore
+	}
 	registry := peers.NewRegistry(cfg.SelfAddr, cfg.Peers)
 	pusher := peers.NewHTTPPusher(registry, cfg.InternalAuthToken, 2*time.Second)
 	svc := kv.NewService(cache, s3Store, pusher, cfg.MaxVersions, cfg.CacheTTL)

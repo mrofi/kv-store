@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"testing"
 	"time"
 )
@@ -33,6 +34,49 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.CacheTTL != 0 {
 		t.Fatalf("CacheTTL = %v, want 0 (disabled by default)", cfg.CacheTTL)
+	}
+	if cfg.EncryptionKey != nil {
+		t.Fatalf("EncryptionKey = %v, want nil (disabled by default)", cfg.EncryptionKey)
+	}
+}
+
+func TestLoadParsesEncryptionKey(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	t.Setenv("ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(key))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(cfg.EncryptionKey) != 32 {
+		t.Fatalf("len(EncryptionKey) = %d, want 32", len(cfg.EncryptionKey))
+	}
+	for i := range key {
+		if cfg.EncryptionKey[i] != key[i] {
+			t.Fatalf("EncryptionKey[%d] = %d, want %d", i, cfg.EncryptionKey[i], key[i])
+		}
+	}
+}
+
+func TestLoadRejectsInvalidBase64EncryptionKey(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("ENCRYPTION_KEY", "not-valid-base64!!!")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for invalid base64 ENCRYPTION_KEY")
+	}
+}
+
+func TestLoadRejectsWrongLengthEncryptionKey(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("too-short")))
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for an ENCRYPTION_KEY that isn't 32 bytes")
 	}
 }
 

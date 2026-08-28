@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strconv"
@@ -17,6 +18,7 @@ type Config struct {
 	MaxVersions       int
 	InternalAuthToken string
 	CacheTTL          time.Duration
+	EncryptionKey     []byte
 }
 
 func Load() (Config, error) {
@@ -57,6 +59,17 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: invalid CACHE_TTL %q: %w", raw, err)
 		}
 		cfg.CacheTTL = d
+	}
+
+	if raw := os.Getenv("ENCRYPTION_KEY"); raw != "" {
+		key, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid ENCRYPTION_KEY (must be base64): %w", err)
+		}
+		if len(key) != 32 {
+			return Config{}, fmt.Errorf("config: ENCRYPTION_KEY must decode to exactly 32 bytes, got %d", len(key))
+		}
+		cfg.EncryptionKey = key
 	}
 
 	return cfg, nil
