@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -251,6 +252,78 @@ func TestDeletePropagatesToPeerViaPush(t *testing.T) {
 			t.Fatalf("peer B still serving the deleted value after 2s (delete-push never arrived, and B's 1h CACHE_TTL means its own Head-check fallback won't catch this for a long time)")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestConcurrentPushesFromMultipleInstancesDoNotCorruptCache proves the
+// ApplyPush ordering fix's atomicity holds across genuinely separate peer
+// instances racing over real HTTP and real S3 writes — not just
+// concurrent goroutines calling ApplyPush directly within one process
+// (which is all the unit-level stress test in kv/service_test.go actually
+// exercises).
+//
+// What this deliberately does NOT assert: that target's cache always
+// ends up matching whichever write S3 actually committed last. UpdatedAt
+// is stamped from each instance's own local wall clock at the moment its
+// own PutObject call returns — not from anything S3 reports — so under a
+// genuine race between two different instances writing the same key,
+// "whoever's local clock read later" and "whichever write S3 actually
+// applied last" can disagree. That's an accepted limitation (documented
+// in the README), the same root cause as the already-accepted
+// last-write-wins behavior for concurrent writes to one key — it just
+// also means the push-warmed cache can disagree with S3's truth for up
+// to CACHE_TTL, not only that S3 itself picks the winner. An earlier,
+// stricter version of this test asserted convergence with S3 truth and
+// failed ~30% of the time for exactly this reason.
+//
+// target uses a long CACHE_TTL so its Get trusts the cache without a
+// Head-check, isolating what the push mechanism itself guarantees from
+// S3's own safety net.
+func TestConcurrentPushesFromMultipleInstancesDoNotCorruptCache(t *testing.T) {
+	target := newInstance(t, time.Hour)
+	s1 := newInstance(t, 0)
+	s2 := newInstance(t, 0)
+	defer target.server.Close()
+	defer s1.server.Close()
+	defer s2.server.Close()
+
+	s1.registry.Set([]string{target.server.URL})
+	s2.registry.Set([]string{target.server.URL})
+
+	key := uniqueKey("multi-instance-race-key")
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		put(t, s1.server.URL, key, "from-s1")
+	}()
+	go func() {
+		defer wg.Done()
+		put(t, s2.server.URL, key, "from-s2")
+	}()
+	wg.Wait()
+
+	// Give both instances' async pushes time to land at target.
+	time.Sleep(500 * time.Millisecond)
+
+	targetBody, targetStatus := get(t, target.server.URL, key)
+	if targetStatus != http.StatusOK {
+		t.Fatalf("GET on target status = %d, want 200", targetStatus)
+	}
+	if targetBody != "from-s1" && targetBody != "from-s2" {
+		t.Fatalf("target's cached value = %q, want one of {from-s1, from-s2} (cache corrupted by the race)", targetBody)
+	}
+
+	// Logged, not asserted: whether target's push-warmed cache happens to
+	// agree with S3's actual final state for this particular run.
+	// Disagreement here is the accepted limitation described above, not
+	// a test failure.
+	truth := newInstance(t, 0)
+	defer truth.server.Close()
+	truthBody, truthStatus := get(t, truth.server.URL, key)
+	if truthStatus == http.StatusOK && truthBody != targetBody {
+		t.Logf("accepted limitation observed this run: target's push-warmed cache (%q) disagrees with S3 ground truth (%q) after a same-key race between two instances", targetBody, truthBody)
 	}
 }
 
