@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	kvconfig "kvstore/internal/config"
@@ -37,10 +38,16 @@ func main() {
 		},
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(context.Background(),
+	awsCfgOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.AWSRegion),
 		config.WithHTTPClient(httpClient),
-	)
+	}
+	if cfg.S3AccessKeyID != "" {
+		awsCfgOpts = append(awsCfgOpts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(cfg.S3AccessKeyID, cfg.S3SecretAccessKey, cfg.S3SessionToken),
+		))
+	}
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), awsCfgOpts...)
 	if err != nil {
 		log.Fatalf("aws config: %v", err)
 	}

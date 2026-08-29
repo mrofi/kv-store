@@ -47,6 +47,58 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.S3ForcePathStyle {
 		t.Fatal("S3ForcePathStyle = true, want false by default")
 	}
+	if cfg.S3AccessKeyID != "" || cfg.S3SecretAccessKey != "" || cfg.S3SessionToken != "" {
+		t.Fatal("S3 credential fields should be empty by default")
+	}
+}
+
+func TestLoadParsesS3Credentials(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_ACCESS_KEY_ID", "AKIAEXAMPLE")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret123")
+	t.Setenv("S3_SESSION_TOKEN", "token456")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.S3AccessKeyID != "AKIAEXAMPLE" {
+		t.Fatalf("S3AccessKeyID = %q, want AKIAEXAMPLE", cfg.S3AccessKeyID)
+	}
+	if cfg.S3SecretAccessKey != "secret123" {
+		t.Fatalf("S3SecretAccessKey = %q, want secret123", cfg.S3SecretAccessKey)
+	}
+	if cfg.S3SessionToken != "token456" {
+		t.Fatalf("S3SessionToken = %q, want token456", cfg.S3SessionToken)
+	}
+}
+
+func TestLoadAllowsS3SessionTokenAloneWithBothKeysSet(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_ACCESS_KEY_ID", "AKIAEXAMPLE")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret123")
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+}
+
+func TestLoadRejectsS3AccessKeyIDWithoutSecret(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_ACCESS_KEY_ID", "AKIAEXAMPLE")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error when S3_ACCESS_KEY_ID is set without S3_SECRET_ACCESS_KEY")
+	}
+}
+
+func TestLoadRejectsS3SecretWithoutAccessKeyID(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret123")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error when S3_SECRET_ACCESS_KEY is set without S3_ACCESS_KEY_ID")
+	}
 }
 
 func TestLoadParsesS3Endpoint(t *testing.T) {

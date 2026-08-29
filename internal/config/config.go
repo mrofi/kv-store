@@ -22,6 +22,9 @@ type Config struct {
 	CacheMaxEntries   int
 	S3Endpoint        string
 	S3ForcePathStyle  bool
+	S3AccessKeyID     string
+	S3SecretAccessKey string
+	S3SessionToken    string
 }
 
 func Load() (Config, error) {
@@ -98,6 +101,20 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: invalid S3_FORCE_PATH_STYLE %q: %w", raw, err)
 		}
 		cfg.S3ForcePathStyle = b
+	}
+
+	// S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY / S3_SESSION_TOKEN are an
+	// alias for AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
+	// AWS_SESSION_TOKEN, for when a non-AWS S3-compatible provider is in
+	// play and "AWS_"-prefixed names feel out of place. When set, these
+	// take precedence over whatever the AWS SDK's default credential
+	// chain would otherwise resolve (env vars, shared config file, IAM
+	// role, ...).
+	cfg.S3AccessKeyID = os.Getenv("S3_ACCESS_KEY_ID")
+	cfg.S3SecretAccessKey = os.Getenv("S3_SECRET_ACCESS_KEY")
+	cfg.S3SessionToken = os.Getenv("S3_SESSION_TOKEN")
+	if (cfg.S3AccessKeyID == "") != (cfg.S3SecretAccessKey == "") {
+		return Config{}, fmt.Errorf("config: S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must both be set together")
 	}
 
 	return cfg, nil
