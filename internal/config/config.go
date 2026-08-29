@@ -25,15 +25,17 @@ type Config struct {
 	S3AccessKeyID     string
 	S3SecretAccessKey string
 	S3SessionToken    string
+	MaxValueSize      int64
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		Port:        getEnv("PORT", "8080"),
-		S3Bucket:    os.Getenv("S3_BUCKET"),
-		AWSRegion:   getEnv("S3_REGION", getEnv("AWS_REGION", "us-east-1")),
-		SelfAddr:    os.Getenv("SELF_ADDR"),
-		MaxVersions: 10,
+		Port:         getEnv("PORT", "8080"),
+		S3Bucket:     os.Getenv("S3_BUCKET"),
+		AWSRegion:    getEnv("S3_REGION", getEnv("AWS_REGION", "us-east-1")),
+		SelfAddr:     os.Getenv("SELF_ADDR"),
+		MaxVersions:  10,
+		MaxValueSize: 10 << 20, // 10 MiB
 	}
 
 	if cfg.S3Bucket == "" {
@@ -115,6 +117,17 @@ func Load() (Config, error) {
 	cfg.S3SessionToken = os.Getenv("S3_SESSION_TOKEN")
 	if (cfg.S3AccessKeyID == "") != (cfg.S3SecretAccessKey == "") {
 		return Config{}, fmt.Errorf("config: S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must both be set together")
+	}
+
+	if raw := os.Getenv("MAX_VALUE_SIZE"); raw != "" {
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid MAX_VALUE_SIZE %q: %w", raw, err)
+		}
+		if n <= 0 {
+			return Config{}, fmt.Errorf("config: MAX_VALUE_SIZE must be positive, got %d", n)
+		}
+		cfg.MaxValueSize = n
 	}
 
 	return cfg, nil

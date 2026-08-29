@@ -71,7 +71,7 @@ func main() {
 	pusher := peers.NewHTTPPusher(registry, cfg.InternalAuthToken, 2*time.Second)
 	svc := kv.NewService(cache, s3Store, pusher, cfg.MaxVersions, cfg.CacheTTL)
 
-	server := httpapi.NewServer(svc, registry, cfg.InternalAuthToken)
+	server := httpapi.NewServer(svc, registry, cfg.InternalAuthToken, cfg.MaxValueSize)
 
 	// A zero-value http.Server (what http.ListenAndServe uses) has no
 	// timeouts at all — a slow or hanging client connection can hold a

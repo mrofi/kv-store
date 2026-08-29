@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -33,10 +34,10 @@ type Server struct {
 // registry and internalAuthToken are threaded through now, even though
 // this task doesn't use them yet, so the signature doesn't change again
 // when Task 11 wires up the internal routes that need them.
-func NewServer(svc KVService, registry *peers.Registry, internalAuthToken string) *Server {
+func NewServer(svc KVService, registry *peers.Registry, internalAuthToken string, maxValueSize int64) *Server {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("PUT /kv/{key}", handlePut(svc))
+	mux.HandleFunc("PUT /kv/{key}", handlePut(svc, maxValueSize))
 	mux.HandleFunc("GET /kv/{key}/versions", handleListVersions(svc))
 	mux.HandleFunc("GET /kv/{key}", handleGet(svc))
 	mux.HandleFunc("DELETE /kv/{key}", handleDelete(svc))
@@ -53,15 +54,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-func handlePut(svc KVService) http.HandlerFunc {
+func handlePut(svc KVService, maxValueSize int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
 		if err := validateKey(key); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxValueSize)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, fmt.Sprintf("value exceeds maximum size of %d bytes", maxValueSize), http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "failed to read body", http.StatusBadRequest)
 			return
 		}

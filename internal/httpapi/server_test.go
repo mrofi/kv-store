@@ -14,7 +14,7 @@ import (
 
 func TestHandlePutReturnsVersionHeaders(t *testing.T) {
 	svc := &fakeKVService{putEntry: store.Entry{VersionID: "v1", ETag: "etag1"}}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPut, "/kv/foo", strings.NewReader("bar"))
 	rec := httptest.NewRecorder()
@@ -30,7 +30,7 @@ func TestHandlePutReturnsVersionHeaders(t *testing.T) {
 
 func TestHandleGetReturnsValueAndHeaders(t *testing.T) {
 	svc := &fakeKVService{getEntry: store.Entry{Value: []byte("bar"), VersionID: "v1", UpdatedAt: time.Now()}}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/kv/foo", nil)
 	rec := httptest.NewRecorder()
@@ -49,7 +49,7 @@ func TestHandleGetReturnsValueAndHeaders(t *testing.T) {
 
 func TestHandleGetSetsStaleHeader(t *testing.T) {
 	svc := &fakeKVService{getEntry: store.Entry{Value: []byte("bar")}, getStale: true}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/kv/foo", nil)
 	rec := httptest.NewRecorder()
@@ -62,7 +62,7 @@ func TestHandleGetSetsStaleHeader(t *testing.T) {
 
 func TestHandleGetNotFound(t *testing.T) {
 	svc := &fakeKVService{getErr: kv.ErrNotFound}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/kv/missing", nil)
 	rec := httptest.NewRecorder()
@@ -75,7 +75,7 @@ func TestHandleGetNotFound(t *testing.T) {
 
 func TestHandleGetUnavailable(t *testing.T) {
 	svc := &fakeKVService{getErr: kv.ErrUnavailable}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/kv/foo", nil)
 	rec := httptest.NewRecorder()
@@ -88,7 +88,7 @@ func TestHandleGetUnavailable(t *testing.T) {
 
 func TestHandleGetSpecificVersion(t *testing.T) {
 	svc := &fakeKVService{versionEntry: store.Entry{Value: []byte("old"), VersionID: "v0"}}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/kv/foo?version=v0", nil)
 	rec := httptest.NewRecorder()
@@ -101,7 +101,7 @@ func TestHandleGetSpecificVersion(t *testing.T) {
 
 func TestHandleListVersions(t *testing.T) {
 	svc := &fakeKVService{versions: []store.ObjectVersion{{VersionID: "v1"}, {VersionID: "v0"}}}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/kv/foo/versions", nil)
 	rec := httptest.NewRecorder()
@@ -116,7 +116,7 @@ func TestHandleListVersions(t *testing.T) {
 }
 
 func TestHandleDelete(t *testing.T) {
-	srv := NewServer(&fakeKVService{}, peers.NewRegistry("", nil), "")
+	srv := NewServer(&fakeKVService{}, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodDelete, "/kv/foo", nil)
 	rec := httptest.NewRecorder()
@@ -127,9 +127,35 @@ func TestHandleDelete(t *testing.T) {
 	}
 }
 
+func TestHandlePutRejectsOversizedBody(t *testing.T) {
+	svc := &fakeKVService{}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 10) // 10-byte limit
+
+	req := httptest.NewRequest(http.MethodPut, "/kv/foo", strings.NewReader("this body is way more than ten bytes"))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", rec.Code)
+	}
+}
+
+func TestHandlePutAcceptsBodyAtExactlyTheLimit(t *testing.T) {
+	svc := &fakeKVService{putEntry: store.Entry{VersionID: "v1"}}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 10) // 10-byte limit
+
+	req := httptest.NewRequest(http.MethodPut, "/kv/foo", strings.NewReader("1234567890")) // exactly 10 bytes
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
 func TestHandlePutRejectsKeyContainingSlash(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPut, "/kv/foo%2Fbar", strings.NewReader("bar"))
 	rec := httptest.NewRecorder()
@@ -142,7 +168,7 @@ func TestHandlePutRejectsKeyContainingSlash(t *testing.T) {
 
 func TestHandleGetRejectsOversizedKey(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/kv/"+strings.Repeat("a", 513), nil)
 	rec := httptest.NewRecorder()
@@ -155,7 +181,7 @@ func TestHandleGetRejectsOversizedKey(t *testing.T) {
 
 func TestHandleDeleteRejectsKeyContainingSlash(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodDelete, "/kv/foo%2Fbar", nil)
 	rec := httptest.NewRecorder()
@@ -168,7 +194,7 @@ func TestHandleDeleteRejectsKeyContainingSlash(t *testing.T) {
 
 func TestHandleListVersionsRejectsKeyContainingSlash(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/kv/foo%2Fbar/versions", nil)
 	rec := httptest.NewRecorder()
@@ -180,7 +206,7 @@ func TestHandleListVersionsRejectsKeyContainingSlash(t *testing.T) {
 }
 
 func TestHandleHealthz(t *testing.T) {
-	srv := NewServer(&fakeKVService{}, peers.NewRegistry("", nil), "")
+	srv := NewServer(&fakeKVService{}, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()

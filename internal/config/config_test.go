@@ -33,6 +33,37 @@ func TestLoadS3RegionTakesPrecedenceOverAWSRegion(t *testing.T) {
 	}
 }
 
+func TestLoadParsesMaxValueSize(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("MAX_VALUE_SIZE", "1048576")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.MaxValueSize != 1048576 {
+		t.Fatalf("MaxValueSize = %d, want 1048576", cfg.MaxValueSize)
+	}
+}
+
+func TestLoadRejectsInvalidMaxValueSize(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("MAX_VALUE_SIZE", "not-a-number")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for invalid MAX_VALUE_SIZE")
+	}
+}
+
+func TestLoadRejectsNonPositiveMaxValueSize(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("MAX_VALUE_SIZE", "0")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for a non-positive MAX_VALUE_SIZE")
+	}
+}
+
 func TestLoadRequiresS3Bucket(t *testing.T) {
 	_, err := Load()
 	if err == nil {
@@ -55,6 +86,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.MaxVersions != 10 {
 		t.Fatalf("MaxVersions = %d, want 10", cfg.MaxVersions)
+	}
+	if cfg.MaxValueSize != 10<<20 {
+		t.Fatalf("MaxValueSize = %d, want %d (10 MiB)", cfg.MaxValueSize, 10<<20)
 	}
 	if len(cfg.Peers) != 0 {
 		t.Fatalf("Peers = %v, want empty", cfg.Peers)

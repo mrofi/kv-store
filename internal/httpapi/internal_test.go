@@ -12,7 +12,7 @@ import (
 
 func TestInternalAuthRejectsMissingToken(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "secret")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "secret", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("body"))
 	req.Header.Set("X-Key", "foo")
@@ -26,7 +26,7 @@ func TestInternalAuthRejectsMissingToken(t *testing.T) {
 
 func TestInternalAuthAcceptsCorrectToken(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "secret")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "secret", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("body"))
 	req.Header.Set("X-Key", "foo")
@@ -44,7 +44,7 @@ func TestInternalAuthAcceptsCorrectToken(t *testing.T) {
 
 func TestInternalAuthSkippedWhenTokenUnset(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("body"))
 	req.Header.Set("X-Key", "foo")
@@ -58,7 +58,7 @@ func TestInternalAuthSkippedWhenTokenUnset(t *testing.T) {
 
 func TestInternalDeleteAppliesDelete(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "secret")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "secret", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/delete", nil)
 	req.Header.Set("X-Key", "foo")
@@ -76,7 +76,7 @@ func TestInternalDeleteAppliesDelete(t *testing.T) {
 
 func TestInternalDeleteRejectsMissingAuthWhenTokenSet(t *testing.T) {
 	svc := &fakeKVService{}
-	srv := NewServer(svc, peers.NewRegistry("", nil), "secret")
+	srv := NewServer(svc, peers.NewRegistry("", nil), "secret", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/delete", nil)
 	req.Header.Set("X-Key", "foo")
@@ -90,7 +90,7 @@ func TestInternalDeleteRejectsMissingAuthWhenTokenSet(t *testing.T) {
 
 func TestHandleSetPeersReplacesRegistry(t *testing.T) {
 	registry := peers.NewRegistry("", []string{"http://old"})
-	srv := NewServer(&fakeKVService{}, registry, "")
+	srv := NewServer(&fakeKVService{}, registry, "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPut, "/internal/peers", bytes.NewReader([]byte(`{"peers":["http://a","http://b"]}`)))
 	rec := httptest.NewRecorder()

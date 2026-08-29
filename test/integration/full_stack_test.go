@@ -62,7 +62,7 @@ func newInstance(t *testing.T, cacheTTL time.Duration) *instance {
 	registry := peers.NewRegistry("", nil)
 	pusher := peers.NewHTTPPusher(registry, authToken, 2*time.Second)
 	svc := kv.NewService(cache, s3Store, pusher, 10, cacheTTL)
-	srv := httpapi.NewServer(svc, registry, authToken)
+	srv := httpapi.NewServer(svc, registry, authToken, 10<<20)
 
 	return &instance{server: httptest.NewServer(srv), registry: registry}
 }
