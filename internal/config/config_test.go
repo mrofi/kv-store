@@ -6,6 +6,33 @@ import (
 	"time"
 )
 
+func TestLoadParsesS3RegionAlias(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_REGION", "eu-west-1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.AWSRegion != "eu-west-1" {
+		t.Fatalf("AWSRegion = %q, want eu-west-1", cfg.AWSRegion)
+	}
+}
+
+func TestLoadS3RegionTakesPrecedenceOverAWSRegion(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("AWS_REGION", "us-west-2")
+	t.Setenv("S3_REGION", "ap-southeast-1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.AWSRegion != "ap-southeast-1" {
+		t.Fatalf("AWSRegion = %q, want ap-southeast-1 (S3_REGION should take precedence)", cfg.AWSRegion)
+	}
+}
+
 func TestLoadRequiresS3Bucket(t *testing.T) {
 	_, err := Load()
 	if err == nil {

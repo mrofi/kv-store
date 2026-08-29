@@ -31,7 +31,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Port:        getEnv("PORT", "8080"),
 		S3Bucket:    os.Getenv("S3_BUCKET"),
-		AWSRegion:   getEnv("AWS_REGION", "us-east-1"),
+		AWSRegion:   getEnv("S3_REGION", getEnv("AWS_REGION", "us-east-1")),
 		SelfAddr:    os.Getenv("SELF_ADDR"),
 		MaxVersions: 10,
 	}
