@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"kvstore/internal/store"
+	"kvstore/store"
 )
 
 type recordedPush struct {

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"kvstore/internal/peers"
-	"kvstore/internal/store"
+	"kvstore/peers"
+	"kvstore/store"
 )
 
 func withInternalAuth(token string, next http.Handler) http.Handler {

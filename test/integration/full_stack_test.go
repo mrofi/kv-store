@@ -19,9 +19,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"kvstore/internal/httpapi"
-	"kvstore/internal/kv"
-	"kvstore/internal/peers"
-	"kvstore/internal/store"
+	"kvstore/kv"
+	"kvstore/peers"
+	"kvstore/store"
 )
 
 const (

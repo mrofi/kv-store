@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"kvstore/internal/kv"
-	"kvstore/internal/peers"
-	"kvstore/internal/store"
+	"kvstore/kv"
+	"kvstore/peers"
+	"kvstore/store"
 )
 
 func TestHandlePutReturnsVersionHeaders(t *testing.T) {

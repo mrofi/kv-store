@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"kvstore/internal/kv"
-	"kvstore/internal/peers"
-	"kvstore/internal/store"
+	"kvstore/kv"
+	"kvstore/peers"
+	"kvstore/store"
 )
 
 // KVService is the subset of *kv.Service the HTTP layer depends on,

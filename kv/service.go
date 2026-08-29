@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"kvstore/internal/store"
+	"kvstore/store"
 )
 
 var (

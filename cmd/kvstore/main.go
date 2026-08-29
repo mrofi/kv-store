@@ -11,9 +11,9 @@ import (
 
 	kvconfig "kvstore/internal/config"
 	"kvstore/internal/httpapi"
-	"kvstore/internal/kv"
-	"kvstore/internal/peers"
-	"kvstore/internal/store"
+	"kvstore/kv"
+	"kvstore/peers"
+	"kvstore/store"
 )
 
 func main() {

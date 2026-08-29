@@ -3,7 +3,7 @@ package httpapi
 import (
 	"context"
 
-	"kvstore/internal/store"
+	"kvstore/store"
 )
 
 type fakeKVService struct {

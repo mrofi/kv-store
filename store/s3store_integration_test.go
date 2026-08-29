@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"kvstore/internal/store"
+	"kvstore/store"
 )
 
 // uniqueKey avoids cross-run collisions: the test bucket is a persistent

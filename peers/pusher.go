@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"kvstore/internal/store"
+	"kvstore/store"
 )
 
 // HTTPPusher broadcasts a written entry to every peer's /internal/push

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"kvstore/internal/peers"
+	"kvstore/peers"
 )
 
 func TestInternalAuthRejectsMissingToken(t *testing.T) {
