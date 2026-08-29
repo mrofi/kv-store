@@ -73,8 +73,20 @@ func main() {
 
 	server := httpapi.NewServer(svc, registry, cfg.InternalAuthToken)
 
+	// A zero-value http.Server (what http.ListenAndServe uses) has no
+	// timeouts at all — a slow or hanging client connection can hold a
+	// goroutine and its resources open indefinitely.
+	httpServer := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           server,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
 	log.Printf("kv-store listening on :%s", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, server); err != nil {
+	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatalf("server: %v", err)
 	}
 }
