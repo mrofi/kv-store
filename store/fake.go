@@ -29,6 +29,23 @@ type FakeS3Store struct {
 	HeadCalls int
 	GetCalls  int
 	PutCalls  int
+
+	pruneCtx context.Context // last context passed to PruneToMax, for tests to inspect
+
+	// PutHook, if set, runs after Put has durably recorded the new version
+	// (i.e. after releasing the internal lock) but before Put returns to
+	// its caller. Tests use it to force a specific interleaving with a
+	// concurrent Delete on the same key.
+	PutHook func()
+}
+
+// LastPruneCtx returns the context passed to the most recent PruneToMax
+// call, or nil if none has happened yet. Tests use this to assert callers
+// attach a deadline rather than passing context.Background().
+func (f *FakeS3Store) LastPruneCtx() context.Context {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pruneCtx
 }
 
 func NewFakeS3Store() *FakeS3Store {
@@ -37,9 +54,9 @@ func NewFakeS3Store() *FakeS3Store {
 
 func (f *FakeS3Store) Put(ctx context.Context, key string, value []byte) (Entry, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.PutCalls++
 	if f.PutErr != nil {
+		f.mu.Unlock()
 		return Entry{}, f.PutErr
 	}
 	f.seq++
@@ -50,6 +67,12 @@ func (f *FakeS3Store) Put(ctx context.Context, key string, value []byte) (Entry,
 		UpdatedAt: time.Now(),
 	}
 	f.versions[key] = append(f.versions[key], versionRecord{entry: entry})
+	hook := f.PutHook
+	f.mu.Unlock()
+
+	if hook != nil {
+		hook()
+	}
 	return entry, nil
 }
 
@@ -124,6 +147,7 @@ func (f *FakeS3Store) Delete(ctx context.Context, key string) error {
 func (f *FakeS3Store) PruneToMax(ctx context.Context, key string, maxVersions int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.pruneCtx = ctx
 	recs := f.versions[key]
 	if maxVersions <= 0 || len(recs) <= maxVersions {
 		return nil

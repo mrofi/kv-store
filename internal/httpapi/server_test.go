@@ -255,3 +255,24 @@ func TestHandleReadyzReturnsServiceUnavailableWhenS3Unreachable(t *testing.T) {
 		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 }
+
+// TestHandleReadyzDoesNotLeakRawS3ErrorText guards against exposing internal
+// details (bucket names, endpoint URLs, credential hints embedded in SDK
+// error messages) to anyone who can reach /readyz — which, unlike
+// /internal/*, carries no auth token and is meant to be hit by an
+// orchestrator's health probe, not a trusted caller.
+func TestHandleReadyzDoesNotLeakRawS3ErrorText(t *testing.T) {
+	svc := &fakeKVService{pingErr: errors.New("dial tcp 10.0.0.5:443: connect: connection refused (bucket=prod-secrets-internal)")}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "prod-secrets-internal") || strings.Contains(rec.Body.String(), "10.0.0.5") {
+		t.Fatalf("response body leaked raw S3 error details: %q", rec.Body.String())
+	}
+}

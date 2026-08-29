@@ -3,7 +3,9 @@ package kv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"kvstore/store"
@@ -13,6 +15,12 @@ var (
 	ErrNotFound    = errors.New("kv: not found")
 	ErrUnavailable = errors.New("kv: unavailable")
 )
+
+// pruneTimeout bounds the detached prune goroutine spawned by Put. It
+// runs independently of the request that triggered it, so without a
+// deadline a hung or slow S3 endpoint would leak that goroutine (and any
+// resources it holds) for the lifetime of the process.
+const pruneTimeout = 30 * time.Second
 
 // Pusher broadcasts writes and deletes to peer instances so their local
 // caches warm up (or evict) without waiting for their own S3 round trip.
@@ -34,6 +42,8 @@ type Service struct {
 	pusher      Pusher
 	maxVersions int
 	cacheTTL    time.Duration
+	locks       keyedMutex
+	wg          sync.WaitGroup
 }
 
 // cacheTTL, when greater than zero, lets a cache hit skip the S3 Head
@@ -142,16 +152,32 @@ func (s *Service) Ping(ctx context.Context) error {
 // Put writes value to S3 and updates the local cache. It returns once S3
 // has durably stored the value; peer cache-warming and version pruning
 // continue asynchronously afterward and never affect the returned error.
+//
+// The per-key lock held for the duration of the S3 write and cache
+// update prevents a concurrent Delete on the same key from interleaving
+// between them — without it, Delete's S3 delete and cache eviction could
+// both complete after Put's S3 write but before Put's cache write,
+// leaving the cache holding a value S3 no longer has.
 func (s *Service) Put(ctx context.Context, key string, value []byte) (store.Entry, error) {
+	unlock := s.locks.Lock(key)
+	defer unlock()
+
 	entry, err := s.s3.Put(ctx, key, value)
 	if err != nil {
 		return store.Entry{}, err
 	}
 	entry = s.cacheSet(key, entry)
 
-	go s.pusher.Push(context.Background(), key, entry)
+	s.wg.Add(2)
 	go func() {
-		if err := s.s3.PruneToMax(context.Background(), key, s.maxVersions); err != nil {
+		defer s.wg.Done()
+		s.pusher.Push(context.Background(), key, entry)
+	}()
+	go func() {
+		defer s.wg.Done()
+		pruneCtx, cancel := context.WithTimeout(context.Background(), pruneTimeout)
+		defer cancel()
+		if err := s.s3.PruneToMax(pruneCtx, key, s.maxVersions); err != nil {
 			log.Printf("kv: prune failed for key %q: %v", key, err)
 		}
 	}()
@@ -160,12 +186,39 @@ func (s *Service) Put(ctx context.Context, key string, value []byte) (store.Entr
 }
 
 func (s *Service) Delete(ctx context.Context, key string) error {
+	unlock := s.locks.Lock(key)
+	defer unlock()
+
 	if err := s.s3.Delete(ctx, key); err != nil {
 		return err
 	}
 	s.cache.Delete(key)
-	go s.pusher.PushDelete(context.Background(), key)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.pusher.PushDelete(context.Background(), key)
+	}()
 	return nil
+}
+
+// Wait blocks until every in-flight async push/prune goroutine spawned by
+// Put or Delete has finished, or ctx is done first. Call it during
+// shutdown, after the HTTP server has stopped accepting new requests
+// (e.g. after http.Server.Shutdown returns) — that only drains in-flight
+// requests, which Put and Delete have already returned from by the time
+// their background work is still running.
+func (s *Service) Wait(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("kv: async work still in flight: %w", ctx.Err())
+	}
 }
 
 // ApplyPush updates the local cache from a peer's cache-warm push. It

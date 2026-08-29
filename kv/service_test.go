@@ -309,6 +309,95 @@ func TestPutPrunesOldVersions(t *testing.T) {
 	}
 }
 
+// TestPutPruneUsesTimeoutContext guards against a leaked goroutine: the
+// prune runs detached from the request (Put already returned), so if it
+// were given context.Background() a hung or slow S3 endpoint would keep
+// that goroutine (and whatever it's holding) alive forever. A bounded
+// timeout guarantees it eventually gives up.
+func TestPutPruneUsesTimeoutContext(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
+
+	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		if ctx := s3.LastPruneCtx(); ctx != nil {
+			if _, ok := ctx.Deadline(); !ok {
+				t.Fatal("expected PruneToMax to be called with a context carrying a deadline, got one with none")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for the async prune to run")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestConcurrentPutAndDeleteSameKeyDoesNotResurrectDeletedValue guards
+// against a same-instance race: without serializing Put and Delete per
+// key, this interleaving is possible — Put's S3 write completes, then a
+// concurrent Delete's S3 delete and cache eviction both complete, then
+// Put's own (now-stale) cache write lands last and resurrects a value in
+// the cache that S3 no longer has.
+//
+// The PutHook pauses Put after its S3 write but before its cache write,
+// giving Delete a window to run. The select below tolerates either
+// outcome of that window: pre-fix, Delete races ahead and finishes before
+// the timeout; post-fix, Delete blocks on Put's per-key lock until the
+// timeout fires and Put is released. Either way, the final assertion is
+// what actually matters: the cache must never disagree with S3's truth
+// once both operations have completed.
+func TestConcurrentPutAndDeleteSameKeyDoesNotResurrectDeletedValue(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
+
+	putEnteredS3Write := make(chan struct{})
+	releasePut := make(chan struct{})
+	var once sync.Once
+	s3.PutHook = func() {
+		once.Do(func() { close(putEnteredS3Write) })
+		<-releasePut
+	}
+
+	deleteDone := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if _, err := svc.Put(context.Background(), "foo", []byte("v1")); err != nil {
+			t.Errorf("Put returned error: %v", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-putEnteredS3Write
+		if err := svc.Delete(context.Background(), "foo"); err != nil {
+			t.Errorf("Delete returned error: %v", err)
+		}
+		close(deleteDone)
+	}()
+
+	select {
+	case <-deleteDone:
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releasePut)
+	wg.Wait()
+
+	if _, ok := cache.Get("foo"); ok {
+		t.Fatal("expected cache to have no entry for foo after a Delete that raced a Put (cache resurrected a value S3 no longer has)")
+	}
+	if _, _, err := svc.Get(context.Background(), "foo"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound from S3 after the race, got %v", err)
+	}
+}
+
 func TestGetAfterDeleteReturnsNotFoundAndEvictsCache(t *testing.T) {
 	cache := store.NewCache(0)
 	s3 := store.NewFakeS3Store()
@@ -588,6 +677,80 @@ func TestApplyDeleteEvictsCache(t *testing.T) {
 	if _, ok := cache.Get("foo"); ok {
 		t.Fatal("expected ApplyDelete to evict the cache entry")
 	}
+}
+
+// TestWaitBlocksUntilAsyncPushAndPruneComplete guards against a process
+// exiting (or a caller assuming shutdown is done) while Put's detached
+// push/prune goroutines are still running — httpServer.Shutdown only
+// waits for in-flight HTTP requests, which Put has already returned from
+// by the time these goroutines are still working.
+func TestWaitBlocksUntilAsyncPushAndPruneComplete(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+
+	releasePush := make(chan struct{})
+	blockingPusher := &blockingPusherWrapper{inner: newRecordingPusher(), release: releasePush}
+	svc := NewService(cache, s3, blockingPusher, 10, 0)
+
+	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+
+	waitDone := make(chan struct{})
+	go func() {
+		if err := svc.Wait(context.Background()); err != nil {
+			t.Errorf("Wait returned error: %v", err)
+		}
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+		t.Fatal("expected Wait to block while the async push is still running")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releasePush)
+
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Wait to return after the async push completed")
+	}
+}
+
+func TestWaitReturnsErrorWhenContextExpiresBeforeAsyncWorkCompletes(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	releasePush := make(chan struct{})
+	defer close(releasePush)
+	blockingPusher := &blockingPusherWrapper{inner: newRecordingPusher(), release: releasePush}
+	svc := NewService(cache, s3, blockingPusher, 10, 0)
+
+	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := svc.Wait(ctx); err == nil {
+		t.Fatal("expected Wait to return an error when its context expires before async work completes")
+	}
+}
+
+type blockingPusherWrapper struct {
+	inner   Pusher
+	release chan struct{}
+}
+
+func (p *blockingPusherWrapper) Push(ctx context.Context, key string, entry store.Entry) {
+	<-p.release
+	p.inner.Push(ctx, key, entry)
+}
+
+func (p *blockingPusherWrapper) PushDelete(ctx context.Context, key string) {
+	<-p.release
+	p.inner.PushDelete(ctx, key)
 }
 
 func TestPingReturnsNilWhenS3Reachable(t *testing.T) {

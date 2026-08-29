@@ -113,6 +113,17 @@ func main() {
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			log.Printf("graceful shutdown did not complete cleanly: %v", err)
 		}
+
+		// httpServer.Shutdown only waits for in-flight requests; Put and
+		// Delete have already returned to their caller by the time their
+		// async peer-push/prune goroutines are still running, so without
+		// this they'd be killed mid-flight when the process exits.
+		log.Println("waiting for in-flight peer pushes and version pruning to finish...")
+		asyncCtx, asyncCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer asyncCancel()
+		if err := svc.Wait(asyncCtx); err != nil {
+			log.Printf("async work did not finish before shutdown: %v", err)
+		}
 		log.Println("shutdown complete")
 	}
 }

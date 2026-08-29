@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -177,10 +178,17 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 // handleReadyz is a readiness check: it reports whether this instance can
 // currently serve most requests, so an orchestrator can route traffic
 // away from it (without restarting it) while S3 is unreachable.
+//
+// Unlike /internal/*, this endpoint carries no auth token — it's meant to
+// be hit by an orchestrator's health probe, which may not be a trusted
+// caller. The underlying error (which can embed bucket names, endpoint
+// URLs, or other SDK-internal detail) is logged server-side only; the
+// response body stays generic.
 func handleReadyz(svc KVService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := svc.Ping(r.Context()); err != nil {
-			http.Error(w, "not ready: "+err.Error(), http.StatusServiceUnavailable)
+			log.Printf("httpapi: readyz check failed: %v", err)
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
