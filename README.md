@@ -260,6 +260,29 @@ coordination between instances. Not built here; if your workload expects
 frequent concurrent writes to the same keys, keep `CACHE_TTL` low or
 disabled for those keys.
 
+**A related case: a delete on one instance can be resurrected by a push
+from another.** Within a single instance, `Put` and `Delete` on the same
+key are serialized against each other, so this can't happen locally. But
+across instances there's no shared lock: if instance A's `Put` push for a
+key arrives at instance B *after* B has already deleted that same key
+(via its own `Delete`, or a peer's delete-push), B's cache has no entry
+to compare the incoming push against — so it's accepted unconditionally,
+even though it's stale. The deleted value briefly reappears in B's cache
+until the next S3 `Head` check corrects it (again, immediately if
+`CACHE_TTL=0`, otherwise within the TTL window).
+
+Closing this fully would mean tracking a tombstone (a `key -> deletedAt`
+record) so a push arriving after a more recent delete gets rejected the
+same way an out-of-order push already does. That's a real mitigation,
+not a full fix, since the tombstone's timestamp is still each instance's
+own local wall clock — the same root cause as above — so it narrows the
+window to ordinary clock skew between instances rather than eliminating
+it, at the cost of new state to maintain (bounded retention, another
+cleanup path). Given that residual caveat, it's left undone here for the
+same reason as the rest of this section: accepted as a bounded,
+self-correcting edge case rather than a coordination problem worth
+building infrastructure to fully close.
+
 ## Deployment notes (S3 bucket setup)
 
 - Enable versioning on the bucket:
