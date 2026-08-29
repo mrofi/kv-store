@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
@@ -43,7 +44,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("aws config: %v", err)
 	}
-	s3Client := s3.NewFromConfig(awsCfg)
+	s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		if cfg.S3Endpoint != "" {
+			o.BaseEndpoint = aws.String(cfg.S3Endpoint)
+		}
+		o.UsePathStyle = cfg.S3ForcePathStyle
+	})
 
 	cache := store.NewCache(cfg.CacheMaxEntries)
 	var s3Store store.S3Store = store.NewAWSS3Store(s3Client, cfg.S3Bucket)

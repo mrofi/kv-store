@@ -41,6 +41,61 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.CacheMaxEntries != 0 {
 		t.Fatalf("CacheMaxEntries = %d, want 0 (unbounded by default)", cfg.CacheMaxEntries)
 	}
+	if cfg.S3Endpoint != "" {
+		t.Fatalf("S3Endpoint = %q, want empty (real AWS S3 by default)", cfg.S3Endpoint)
+	}
+	if cfg.S3ForcePathStyle {
+		t.Fatal("S3ForcePathStyle = true, want false by default")
+	}
+}
+
+func TestLoadParsesS3Endpoint(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_ENDPOINT", "http://localhost:9000")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.S3Endpoint != "http://localhost:9000" {
+		t.Fatalf("S3Endpoint = %q, want http://localhost:9000", cfg.S3Endpoint)
+	}
+}
+
+func TestLoadS3EndpointAutoEnablesPathStyle(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_ENDPOINT", "http://localhost:9000")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if !cfg.S3ForcePathStyle {
+		t.Fatal("expected S3ForcePathStyle to default to true when S3_ENDPOINT is set")
+	}
+}
+
+func TestLoadS3ForcePathStyleExplicitOverride(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_ENDPOINT", "http://localhost:9000")
+	t.Setenv("S3_FORCE_PATH_STYLE", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.S3ForcePathStyle {
+		t.Fatal("expected explicit S3_FORCE_PATH_STYLE=false to override the auto-default")
+	}
+}
+
+func TestLoadRejectsInvalidS3ForcePathStyle(t *testing.T) {
+	t.Setenv("S3_BUCKET", "my-bucket")
+	t.Setenv("S3_FORCE_PATH_STYLE", "not-a-bool")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for invalid S3_FORCE_PATH_STYLE")
+	}
 }
 
 func TestLoadParsesCacheMaxEntries(t *testing.T) {

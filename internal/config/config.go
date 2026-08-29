@@ -20,6 +20,8 @@ type Config struct {
 	CacheTTL          time.Duration
 	EncryptionKey     []byte
 	CacheMaxEntries   int
+	S3Endpoint        string
+	S3ForcePathStyle  bool
 }
 
 func Load() (Config, error) {
@@ -79,6 +81,23 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: invalid CACHE_MAX_ENTRIES %q: %w", raw, err)
 		}
 		cfg.CacheMaxEntries = n
+	}
+
+	cfg.S3Endpoint = os.Getenv("S3_ENDPOINT")
+	if cfg.S3Endpoint != "" {
+		// Virtual-hosted-style addressing needs wildcard DNS for
+		// bucket subdomains, which real AWS S3 supports but most
+		// self-hosted/alternative S3-compatible providers don't — so
+		// path-style is the sane default whenever a custom endpoint
+		// is in play. S3_FORCE_PATH_STYLE can override this below.
+		cfg.S3ForcePathStyle = true
+	}
+	if raw := os.Getenv("S3_FORCE_PATH_STYLE"); raw != "" {
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid S3_FORCE_PATH_STYLE %q: %w", raw, err)
+		}
+		cfg.S3ForcePathStyle = b
 	}
 
 	return cfg, nil
