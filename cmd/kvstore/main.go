@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -85,8 +88,31 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	log.Printf("kv-store listening on :%s", cfg.Port)
-	if err := httpServer.ListenAndServe(); err != nil {
-		log.Fatalf("server: %v", err)
+	// SIGTERM is what container orchestrators (Docker, Kubernetes) send on
+	// shutdown; SIGINT is Ctrl+C during local development. Without this,
+	// either one kills the process mid-request instead of draining it.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Printf("kv-store listening on :%s", cfg.Port)
+		serverErr <- httpServer.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server: %v", err)
+		}
+	case <-ctx.Done():
+		stop()
+		log.Println("shutdown signal received, draining in-flight requests...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("graceful shutdown did not complete cleanly: %v", err)
+		}
+		log.Println("shutdown complete")
 	}
 }

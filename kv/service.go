@@ -122,6 +122,23 @@ func (s *Service) ListVersions(ctx context.Context, key string) ([]store.ObjectV
 	return s.s3.ListVersions(ctx, key)
 }
 
+// Ping reports whether S3 is reachable, for readiness checks. It's
+// deliberately not the same thing as liveness: S3 being briefly
+// unreachable doesn't mean this process is broken and needs restarting,
+// only that it can't currently serve most requests and traffic should be
+// routed elsewhere until Ping succeeds again.
+//
+// A "not found" response for the probe key still means S3 itself
+// answered the request — only some other error indicates S3 is actually
+// unreachable.
+func (s *Service) Ping(ctx context.Context) error {
+	_, err := s.s3.Head(ctx, "__readyz_probe__")
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	return nil
+}
+
 // Put writes value to S3 and updates the local cache. It returns once S3
 // has durably stored the value; peer cache-warming and version pruning
 // continue asynchronously afterward and never affect the returned error.

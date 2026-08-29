@@ -26,6 +26,8 @@ type fakeKVService struct {
 	appliedPushEntry store.Entry
 
 	appliedDeleteKey string
+
+	pingErr error
 }
 
 func (f *fakeKVService) Put(ctx context.Context, key string, value []byte) (store.Entry, error) {
@@ -55,4 +57,8 @@ func (f *fakeKVService) ApplyPush(key string, entry store.Entry) {
 
 func (f *fakeKVService) ApplyDelete(key string) {
 	f.appliedDeleteKey = key
+}
+
+func (f *fakeKVService) Ping(ctx context.Context) error {
+	return f.pingErr
 }

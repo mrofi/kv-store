@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -214,5 +215,43 @@ func TestHandleHealthz(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestHandleHealthzAlwaysOKEvenWhenS3Unreachable(t *testing.T) {
+	svc := &fakeKVService{pingErr: errors.New("S3 unreachable")}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (liveness must not depend on S3)", rec.Code)
+	}
+}
+
+func TestHandleReadyzReturnsOKWhenS3Reachable(t *testing.T) {
+	srv := NewServer(&fakeKVService{}, peers.NewRegistry("", nil), "", 1<<20)
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestHandleReadyzReturnsServiceUnavailableWhenS3Unreachable(t *testing.T) {
+	svc := &fakeKVService{pingErr: errors.New("S3 unreachable")}
+	srv := NewServer(svc, peers.NewRegistry("", nil), "", 1<<20)
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 }

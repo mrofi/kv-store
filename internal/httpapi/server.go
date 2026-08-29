@@ -25,6 +25,7 @@ type KVService interface {
 	Delete(ctx context.Context, key string) error
 	ApplyPush(key string, entry store.Entry)
 	ApplyDelete(key string)
+	Ping(ctx context.Context) error
 }
 
 type Server struct {
@@ -42,6 +43,7 @@ func NewServer(svc KVService, registry *peers.Registry, internalAuthToken string
 	mux.HandleFunc("GET /kv/{key}", handleGet(svc))
 	mux.HandleFunc("DELETE /kv/{key}", handleDelete(svc))
 	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("GET /readyz", handleReadyz(svc))
 
 	mux.Handle("POST /internal/push", peers.NewPushHandler(svc, internalAuthToken))
 	mux.Handle("POST /internal/delete", peers.NewDeleteHandler(svc, internalAuthToken))
@@ -164,6 +166,23 @@ func handleDelete(svc KVService) http.HandlerFunc {
 	}
 }
 
+// handleHealthz is a pure liveness check: it always returns 200 as long
+// as the process is running. It deliberately does not depend on S3 —
+// restarting this process wouldn't fix an S3 outage, so liveness must not
+// fail because of one. See handleReadyz for the S3-dependent check.
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleReadyz is a readiness check: it reports whether this instance can
+// currently serve most requests, so an orchestrator can route traffic
+// away from it (without restarting it) while S3 is unreachable.
+func handleReadyz(svc KVService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := svc.Ping(r.Context()); err != nil {
+			http.Error(w, "not ready: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
 }

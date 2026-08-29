@@ -587,3 +587,26 @@ func TestApplyDeleteEvictsCache(t *testing.T) {
 		t.Fatal("expected ApplyDelete to evict the cache entry")
 	}
 }
+
+func TestPingReturnsNilWhenS3Reachable(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
+
+	// The probe key doesn't exist, which is expected and fine — it still
+	// means S3 itself answered the request.
+	if err := svc.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping returned error: %v", err)
+	}
+}
+
+func TestPingReturnsErrorWhenS3Unreachable(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	s3.HeadErr = errors.New("simulated network error")
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
+
+	if err := svc.Ping(context.Background()); err == nil {
+		t.Fatal("expected Ping to return an error when S3 is unreachable")
+	}
+}
