@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"kvstore/store"
+	"github.com/mrofi/kv-store/store"
 )
 
 func TestHTTPPusherDeliversToReachablePeer(t *testing.T) {

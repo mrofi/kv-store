@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"kvstore/store"
+	"github.com/mrofi/kv-store/store"
 )
 
 // maxPeersBodySize caps the /internal/peers request body. A peer list is

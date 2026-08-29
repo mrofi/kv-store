@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"kvstore/store"
+	"github.com/mrofi/kv-store/store"
 )
 
 // HTTPPusher broadcasts writes and deletes to every peer's /internal/push

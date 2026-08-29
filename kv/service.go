@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"kvstore/store"
+	"github.com/mrofi/kv-store/store"
 )
 
 var (

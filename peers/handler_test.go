@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"kvstore/store"
+	"github.com/mrofi/kv-store/store"
 )
 
 type recordedApplyPush struct {

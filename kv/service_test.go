@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"kvstore/store"
+	"github.com/mrofi/kv-store/store"
 )
 
 type recordedPush struct {

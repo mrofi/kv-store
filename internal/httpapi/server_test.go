@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"kvstore/kv"
-	"kvstore/peers"
-	"kvstore/store"
+	"github.com/mrofi/kv-store/kv"
+	"github.com/mrofi/kv-store/peers"
+	"github.com/mrofi/kv-store/store"
 )
 
 func TestHandlePutReturnsVersionHeaders(t *testing.T) {

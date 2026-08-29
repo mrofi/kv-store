@@ -150,6 +150,10 @@ the statically-linked binary plus CA certificates.
 
 ## Using it as a library
 
+```bash
+go get github.com/mrofi/kv-store
+```
+
 `store` and `kv` have no dependency on the HTTP layer — embed the
 engine directly in your own service:
 

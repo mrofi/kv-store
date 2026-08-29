@@ -161,6 +161,10 @@ kecil, dan isinya cuma binary statically-linked plus CA certificates.
 
 ## Memakainya sebagai library
 
+```bash
+go get github.com/mrofi/kv-store
+```
+
 `store` dan `kv` tidak punya dependency ke HTTP layer — sematkan engine
 ini langsung ke service Anda sendiri:
 

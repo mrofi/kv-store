@@ -1,3 +1,8 @@
+// Command kvstore runs kv-store as a standalone HTTP server: an
+// S3-backed, versioned key-value store with an in-memory cache and
+// peer-to-peer cache warming for high availability. Configuration is
+// read entirely from environment variables — see internal/config and
+// the project README for the full list.
 package main
 
 import (
@@ -14,11 +19,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	kvconfig "kvstore/internal/config"
-	"kvstore/internal/httpapi"
-	"kvstore/kv"
-	"kvstore/peers"
-	"kvstore/store"
+	kvconfig "github.com/mrofi/kv-store/internal/config"
+	"github.com/mrofi/kv-store/internal/httpapi"
+	"github.com/mrofi/kv-store/kv"
+	"github.com/mrofi/kv-store/peers"
+	"github.com/mrofi/kv-store/store"
 )
 
 func main() {

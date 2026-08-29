@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"kvstore/peers"
+	"github.com/mrofi/kv-store/peers"
 )
 
 func TestInternalAuthRejectsMissingToken(t *testing.T) {
