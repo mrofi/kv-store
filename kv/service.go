@@ -14,17 +14,19 @@ var (
 	ErrUnavailable = errors.New("kv: unavailable")
 )
 
-// Pusher broadcasts a freshly written entry to peer instances so their
-// local caches warm up without waiting for their own S3 round trip. It is
-// best-effort: implementations must not surface a per-peer failure to the
-// caller, only log it and move on.
+// Pusher broadcasts writes and deletes to peer instances so their local
+// caches warm up (or evict) without waiting for their own S3 round trip.
+// It is best-effort: implementations must not surface a per-peer failure
+// to the caller, only log it and move on.
 type Pusher interface {
 	Push(ctx context.Context, key string, entry store.Entry)
+	PushDelete(ctx context.Context, key string)
 }
 
 type noopPusher struct{}
 
 func (noopPusher) Push(ctx context.Context, key string, entry store.Entry) {}
+func (noopPusher) PushDelete(ctx context.Context, key string)              {}
 
 type Service struct {
 	cache       *store.Cache
@@ -145,13 +147,35 @@ func (s *Service) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	s.cache.Delete(key)
+	go s.pusher.PushDelete(context.Background(), key)
 	return nil
 }
 
 // ApplyPush updates the local cache from a peer's cache-warm push. It
 // never touches S3 — the next Get for this key still confirms freshness
 // against S3 via Head, so an incorrect or stale push can never serve wrong
-// data, only cost a slower cache hit.
+// data for long, only cost a slower cache hit (or, if CACHE_TTL is set,
+// serve stale data for up to the TTL window — which is why an
+// out-of-order push is rejected below rather than trusted blindly).
+//
+// A push whose entry is not newer than what's already cached is ignored:
+// peer pushes travel over the network and can arrive out of order, and
+// applying a stale one would regress the cache to older data. UpdatedAt
+// (the writer's local clock at write time) is the ordering signal here,
+// since S3 version IDs are opaque and not comparable for recency.
 func (s *Service) ApplyPush(key string, entry store.Entry) {
+	if cached, hit := s.cache.Get(key); hit && !entry.UpdatedAt.After(cached.UpdatedAt) {
+		return
+	}
 	s.cacheSet(key, entry)
+}
+
+// ApplyDelete evicts key from the local cache in response to a peer's
+// delete notification. Like ApplyPush, this is a latency optimization,
+// not a correctness guarantee: a sufficiently stale, out-of-order push
+// arriving after this could still repopulate the cache with the
+// pre-delete value until the next S3 Head confirms it's gone (immediately
+// if CACHE_TTL is disabled, otherwise within the TTL window).
+func (s *Service) ApplyDelete(key string) {
+	s.cache.Delete(key)
 }

@@ -16,11 +16,16 @@ type recordedApplyPush struct {
 }
 
 type fakePushReceiver struct {
-	calls []recordedApplyPush
+	calls       []recordedApplyPush
+	deleteCalls []string
 }
 
 func (f *fakePushReceiver) ApplyPush(key string, entry store.Entry) {
 	f.calls = append(f.calls, recordedApplyPush{key: key, entry: entry})
+}
+
+func (f *fakePushReceiver) ApplyDelete(key string) {
+	f.deleteCalls = append(f.deleteCalls, key)
 }
 
 func TestNewPushHandlerAppliesPush(t *testing.T) {
@@ -88,6 +93,68 @@ func TestNewPushHandlerAcceptsCorrectAuth(t *testing.T) {
 	}
 	if len(receiver.calls) != 1 {
 		t.Fatalf("expected 1 ApplyPush call, got %d", len(receiver.calls))
+	}
+}
+
+func TestNewDeleteHandlerAppliesDelete(t *testing.T) {
+	receiver := &fakePushReceiver{}
+	handler := NewDeleteHandler(receiver, "")
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/delete", nil)
+	req.Header.Set("X-Key", "foo")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if len(receiver.deleteCalls) != 1 || receiver.deleteCalls[0] != "foo" {
+		t.Fatalf("deleteCalls = %v, want [foo]", receiver.deleteCalls)
+	}
+}
+
+func TestNewDeleteHandlerRejectsMissingXKey(t *testing.T) {
+	receiver := &fakePushReceiver{}
+	handler := NewDeleteHandler(receiver, "")
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/delete", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestNewDeleteHandlerRejectsMissingAuthWhenTokenSet(t *testing.T) {
+	receiver := &fakePushReceiver{}
+	handler := NewDeleteHandler(receiver, "secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/delete", nil)
+	req.Header.Set("X-Key", "foo")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestNewDeleteHandlerAcceptsCorrectAuth(t *testing.T) {
+	receiver := &fakePushReceiver{}
+	handler := NewDeleteHandler(receiver, "secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/delete", nil)
+	req.Header.Set("X-Key", "foo")
+	req.Header.Set("X-Internal-Auth", "secret")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if len(receiver.deleteCalls) != 1 {
+		t.Fatalf("expected 1 ApplyDelete call, got %d", len(receiver.deleteCalls))
 	}
 }
 

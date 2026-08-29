@@ -42,7 +42,7 @@ type instance struct {
 	registry *peers.Registry
 }
 
-func newInstance(t *testing.T) *instance {
+func newInstance(t *testing.T, cacheTTL time.Duration) *instance {
 	t.Helper()
 
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
@@ -61,7 +61,7 @@ func newInstance(t *testing.T) *instance {
 	s3Store := store.NewAWSS3Store(client, bucket)
 	registry := peers.NewRegistry("", nil)
 	pusher := peers.NewHTTPPusher(registry, authToken, 2*time.Second)
-	svc := kv.NewService(cache, s3Store, pusher, 10, 0)
+	svc := kv.NewService(cache, s3Store, pusher, 10, cacheTTL)
 	srv := httpapi.NewServer(svc, registry, authToken)
 
 	return &instance{server: httptest.NewServer(srv), registry: registry}
@@ -98,8 +98,8 @@ func get(t *testing.T, baseURL, key string) (string, int) {
 }
 
 func TestWritePropagatesToPeerViaPush(t *testing.T) {
-	a := newInstance(t)
-	b := newInstance(t)
+	a := newInstance(t, 0)
+	b := newInstance(t, 0)
 	defer a.server.Close()
 	defer b.server.Close()
 
@@ -123,7 +123,7 @@ func TestWritePropagatesToPeerViaPush(t *testing.T) {
 }
 
 func TestWriteVisibleViaHeadFallbackWhenPushFails(t *testing.T) {
-	a := newInstance(t)
+	a := newInstance(t, 0)
 	defer a.server.Close()
 
 	// Point A's peer list at an address nothing is listening on, so the
@@ -133,7 +133,7 @@ func TestWriteVisibleViaHeadFallbackWhenPushFails(t *testing.T) {
 	key := uniqueKey("no-push-key")
 	put(t, a.server.URL, key, "still-here")
 
-	b := newInstance(t)
+	b := newInstance(t, 0)
 	defer b.server.Close()
 
 	body, status := get(t, b.server.URL, key)
@@ -143,7 +143,7 @@ func TestWriteVisibleViaHeadFallbackWhenPushFails(t *testing.T) {
 }
 
 func TestVersionCapEnforcedEndToEnd(t *testing.T) {
-	a := newInstance(t)
+	a := newInstance(t, 0)
 	defer a.server.Close()
 
 	key := uniqueKey("capped-key")
@@ -174,7 +174,7 @@ func TestVersionCapEnforcedEndToEnd(t *testing.T) {
 }
 
 func TestDeleteThenGetReturnsNotFound(t *testing.T) {
-	a := newInstance(t)
+	a := newInstance(t, 0)
 	defer a.server.Close()
 
 	key := uniqueKey("delete-key")
@@ -196,8 +196,66 @@ func TestDeleteThenGetReturnsNotFound(t *testing.T) {
 	}
 }
 
+func deleteKey(t *testing.T, baseURL, key string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, baseURL+"/kv/"+key, nil)
+	if err != nil {
+		t.Fatalf("building DELETE request failed: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE failed: %v", err)
+	}
+	resp.Body.Close()
+}
+
+// TestDeletePropagatesToPeerViaPush uses a long CACHE_TTL specifically so
+// the only way B stops serving the deleted value quickly is if the
+// delete-push actually evicted it — B's own Head-check fallback is
+// bypassed for the whole TTL window by design, so without the fix this
+// test would time out waiting for a 404 rather than get one immediately.
+func TestDeletePropagatesToPeerViaPush(t *testing.T) {
+	a := newInstance(t, time.Hour)
+	b := newInstance(t, time.Hour)
+	defer a.server.Close()
+	defer b.server.Close()
+
+	a.registry.Set([]string{b.server.URL})
+	b.registry.Set([]string{a.server.URL})
+
+	key := uniqueKey("delete-push-key")
+	put(t, a.server.URL, key, "will-be-deleted")
+
+	// Wait for the write's push to warm B's cache (and its TTL window).
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		body, status := get(t, b.server.URL, key)
+		if status == http.StatusOK && body == "will-be-deleted" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("peer B never saw the pushed value (last status=%d body=%q)", status, body)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	deleteKey(t, a.server.URL, key)
+
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		_, status := get(t, b.server.URL, key)
+		if status == http.StatusNotFound {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("peer B still serving the deleted value after 2s (delete-push never arrived, and B's 1h CACHE_TTL means its own Head-check fallback won't catch this for a long time)")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestInternalPushRejectedWithoutAuthToken(t *testing.T) {
-	a := newInstance(t)
+	a := newInstance(t, 0)
 	defer a.server.Close()
 
 	req, err := http.NewRequest(http.MethodPost, a.server.URL+"/internal/push", strings.NewReader("body"))

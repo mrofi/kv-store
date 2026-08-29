@@ -24,6 +24,8 @@ type fakeKVService struct {
 
 	appliedPushKey   string
 	appliedPushEntry store.Entry
+
+	appliedDeleteKey string
 }
 
 func (f *fakeKVService) Put(ctx context.Context, key string, value []byte) (store.Entry, error) {
@@ -49,4 +51,8 @@ func (f *fakeKVService) Delete(ctx context.Context, key string) error {
 func (f *fakeKVService) ApplyPush(key string, entry store.Entry) {
 	f.appliedPushKey = key
 	f.appliedPushEntry = entry
+}
+
+func (f *fakeKVService) ApplyDelete(key string) {
+	f.appliedDeleteKey = key
 }

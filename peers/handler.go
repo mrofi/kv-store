@@ -14,6 +14,7 @@ import (
 // on kv — kv.Service already satisfies this interface as-is.
 type PushReceiver interface {
 	ApplyPush(key string, entry store.Entry)
+	ApplyDelete(key string)
 }
 
 func withInternalAuth(token string, next http.Handler) http.Handler {
@@ -49,6 +50,23 @@ func NewPushHandler(receiver PushReceiver, authToken string) http.Handler {
 			ETag:      r.Header.Get("X-ETag"),
 			UpdatedAt: updatedAt,
 		})
+		w.WriteHeader(http.StatusOK)
+	}))
+}
+
+// NewDeleteHandler returns an http.Handler for receiving a peer's delete
+// notification and applying it via receiver.ApplyDelete. Mount it at
+// whatever path you like — the standalone kv-store binary uses
+// POST /internal/delete. If authToken is non-empty, requests must carry a
+// matching X-Internal-Auth header.
+func NewDeleteHandler(receiver PushReceiver, authToken string) http.Handler {
+	return withInternalAuth(authToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.Header.Get("X-Key")
+		if key == "" {
+			http.Error(w, "missing X-Key header", http.StatusBadRequest)
+			return
+		}
+		receiver.ApplyDelete(key)
 		w.WriteHeader(http.StatusOK)
 	}))
 }

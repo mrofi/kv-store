@@ -15,15 +15,23 @@ type recordedPush struct {
 }
 
 type recordingPusher struct {
-	calls chan recordedPush
+	calls       chan recordedPush
+	deleteCalls chan string
 }
 
 func newRecordingPusher() *recordingPusher {
-	return &recordingPusher{calls: make(chan recordedPush, 10)}
+	return &recordingPusher{
+		calls:       make(chan recordedPush, 10),
+		deleteCalls: make(chan string, 10),
+	}
 }
 
 func (p *recordingPusher) Push(ctx context.Context, key string, entry store.Entry) {
 	p.calls <- recordedPush{key: key, entry: entry}
+}
+
+func (p *recordingPusher) PushDelete(ctx context.Context, key string) {
+	p.deleteCalls <- key
 }
 
 func TestGetCacheHitAvoidsBodyFetch(t *testing.T) {
@@ -482,5 +490,100 @@ func TestApplyPushStampsCachedAtEnablingTTLFastPath(t *testing.T) {
 	}
 	if s3.HeadCalls != 0 || s3.GetCalls != 0 {
 		t.Fatalf("expected ApplyPush to enable the TTL fast path, got head=%d get=%d", s3.HeadCalls, s3.GetCalls)
+	}
+}
+
+func TestApplyPushRejectsOutOfOrderPush(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
+
+	now := time.Now()
+	svc.ApplyPush("foo", store.Entry{Value: []byte("newer"), UpdatedAt: now})
+	// An older push arrives after, e.g. delayed/reordered on the network.
+	svc.ApplyPush("foo", store.Entry{Value: []byte("older"), UpdatedAt: now.Add(-time.Minute)})
+
+	got, ok := cache.Get("foo")
+	if !ok {
+		t.Fatal("expected cache to still hold a value")
+	}
+	if string(got.Value) != "newer" {
+		t.Fatalf("cached value = %q, want newer (the out-of-order push should have been ignored)", got.Value)
+	}
+}
+
+func TestApplyPushAcceptsNewerPush(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
+
+	now := time.Now()
+	svc.ApplyPush("foo", store.Entry{Value: []byte("older"), UpdatedAt: now})
+	svc.ApplyPush("foo", store.Entry{Value: []byte("newer"), UpdatedAt: now.Add(time.Minute)})
+
+	got, ok := cache.Get("foo")
+	if !ok {
+		t.Fatal("expected cache to hold a value")
+	}
+	if string(got.Value) != "newer" {
+		t.Fatalf("cached value = %q, want newer", got.Value)
+	}
+}
+
+func TestApplyPushAcceptsFirstPushWhenNothingCached(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, time.Hour)
+
+	svc.ApplyPush("foo", store.Entry{Value: []byte("bar")})
+
+	got, ok := cache.Get("foo")
+	if !ok {
+		t.Fatal("expected cache to hold the pushed value")
+	}
+	if string(got.Value) != "bar" {
+		t.Fatalf("cached value = %q, want bar", got.Value)
+	}
+}
+
+func TestDeleteNotifiesPusher(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	pusher := newRecordingPusher()
+	svc := NewService(cache, s3, pusher, 10, 0)
+
+	if _, err := svc.Put(context.Background(), "foo", []byte("bar")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	<-pusher.calls // drain the Put's push so it doesn't get confused with delete below
+
+	if err := svc.Delete(context.Background(), "foo"); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+
+	select {
+	case key := <-pusher.deleteCalls:
+		if key != "foo" {
+			t.Fatalf("PushDelete called with key %q, want foo", key)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for PushDelete")
+	}
+}
+
+func TestApplyDeleteEvictsCache(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
+
+	svc.ApplyPush("foo", store.Entry{Value: []byte("bar")})
+	if _, ok := cache.Get("foo"); !ok {
+		t.Fatal("expected cache to hold the pushed value before ApplyDelete")
+	}
+
+	svc.ApplyDelete("foo")
+
+	if _, ok := cache.Get("foo"); ok {
+		t.Fatal("expected ApplyDelete to evict the cache entry")
 	}
 }

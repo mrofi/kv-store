@@ -23,6 +23,7 @@ type KVService interface {
 	ListVersions(ctx context.Context, key string) ([]store.ObjectVersion, error)
 	Delete(ctx context.Context, key string) error
 	ApplyPush(key string, entry store.Entry)
+	ApplyDelete(key string)
 }
 
 type Server struct {
@@ -42,6 +43,7 @@ func NewServer(svc KVService, registry *peers.Registry, internalAuthToken string
 	mux.HandleFunc("GET /healthz", handleHealthz)
 
 	mux.Handle("POST /internal/push", peers.NewPushHandler(svc, internalAuthToken))
+	mux.Handle("POST /internal/delete", peers.NewDeleteHandler(svc, internalAuthToken))
 	mux.Handle("PUT /internal/peers", peers.NewSetPeersHandler(registry, internalAuthToken))
 
 	return &Server{mux: mux}
