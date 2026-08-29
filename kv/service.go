@@ -180,11 +180,15 @@ func (s *Service) Delete(ctx context.Context, key string) error {
 // applying a stale one would regress the cache to older data. UpdatedAt
 // (the writer's local clock at write time) is the ordering signal here,
 // since S3 version IDs are opaque and not comparable for recency.
+// The comparison and the write happen atomically via Cache.SetIfNewer —
+// a separate Get-then-Set would leave a race window where two concurrent
+// pushes could both read the same "current" value and let the older one
+// win depending on scheduling, undoing the ordering guarantee entirely.
 func (s *Service) ApplyPush(key string, entry store.Entry) {
-	if cached, hit := s.cache.Get(key); hit && !entry.UpdatedAt.After(cached.UpdatedAt) {
-		return
-	}
-	s.cacheSet(key, entry)
+	entry.CachedAt = time.Now()
+	s.cache.SetIfNewer(key, entry, func(existing store.Entry, exists bool) bool {
+		return !exists || entry.UpdatedAt.After(existing.UpdatedAt)
+	})
 }
 
 // ApplyDelete evicts key from the local cache in response to a peer's

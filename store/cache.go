@@ -73,6 +73,38 @@ func (c *Cache) Set(key string, entry Entry) {
 	}
 }
 
+// SetIfNewer atomically decides whether entry should replace whatever is
+// currently cached for key, in one lock acquisition. newer is called
+// with the currently cached entry (zero value if none) and whether one
+// exists; it returns true if entry should be stored. Use this instead of
+// a separate Get-then-Set when the decision to overwrite depends on the
+// current value — a check-then-act pair of calls has a race window
+// between them where a concurrent caller can invalidate the check.
+func (c *Cache) SetIfNewer(key string, entry Entry, newer func(existing Entry, exists bool) bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if el, ok := c.items[key]; ok {
+		if !newer(el.Value.(*cacheItem).entry, true) {
+			return
+		}
+		el.Value.(*cacheItem).entry = entry
+		c.order.MoveToFront(el)
+		return
+	}
+
+	if !newer(Entry{}, false) {
+		return
+	}
+
+	el := c.order.PushFront(&cacheItem{key: key, entry: entry})
+	c.items[key] = el
+
+	if c.maxEntries > 0 && c.order.Len() > c.maxEntries {
+		c.evictOldest()
+	}
+}
+
 func (c *Cache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

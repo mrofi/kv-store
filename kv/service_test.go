@@ -3,6 +3,8 @@ package kv
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -608,5 +610,40 @@ func TestPingReturnsErrorWhenS3Unreachable(t *testing.T) {
 
 	if err := svc.Ping(context.Background()); err == nil {
 		t.Fatal("expected Ping to return an error when S3 is unreachable")
+	}
+}
+
+// TestApplyPushConcurrentPushesConvergeToNewest guards against a
+// check-then-act race: ApplyPush must decide "is this newer than what's
+// cached" and apply it atomically, not via a separate Get then Set —
+// otherwise concurrent pushes for the same key can race so that an older
+// push wins depending on goroutine scheduling, regardless of UpdatedAt.
+func TestApplyPushConcurrentPushesConvergeToNewest(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, newRecordingPusher(), 10, 0)
+
+	base := time.Now()
+	const n = 100
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			svc.ApplyPush("foo", store.Entry{
+				Value:     []byte(fmt.Sprintf("v%d", i)),
+				UpdatedAt: base.Add(time.Duration(i) * time.Millisecond),
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	got, ok := cache.Get("foo")
+	if !ok {
+		t.Fatal("expected a cached value")
+	}
+	want := fmt.Sprintf("v%d", n-1)
+	if string(got.Value) != want {
+		t.Fatalf("cached value = %q, want %q (the push with the latest UpdatedAt must always win)", got.Value, want)
 	}
 }

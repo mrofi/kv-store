@@ -30,7 +30,7 @@ func (f *fakePushReceiver) ApplyDelete(key string) {
 
 func TestNewPushHandlerAppliesPush(t *testing.T) {
 	receiver := &fakePushReceiver{}
-	handler := NewPushHandler(receiver, "")
+	handler := NewPushHandler(receiver, "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("body"))
 	req.Header.Set("X-Key", "foo")
@@ -53,7 +53,7 @@ func TestNewPushHandlerAppliesPush(t *testing.T) {
 
 func TestNewPushHandlerRejectsMissingXKey(t *testing.T) {
 	receiver := &fakePushReceiver{}
-	handler := NewPushHandler(receiver, "")
+	handler := NewPushHandler(receiver, "", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("body"))
 	rec := httptest.NewRecorder()
@@ -66,7 +66,7 @@ func TestNewPushHandlerRejectsMissingXKey(t *testing.T) {
 
 func TestNewPushHandlerRejectsMissingAuthWhenTokenSet(t *testing.T) {
 	receiver := &fakePushReceiver{}
-	handler := NewPushHandler(receiver, "secret")
+	handler := NewPushHandler(receiver, "secret", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("body"))
 	req.Header.Set("X-Key", "foo")
@@ -80,7 +80,7 @@ func TestNewPushHandlerRejectsMissingAuthWhenTokenSet(t *testing.T) {
 
 func TestNewPushHandlerAcceptsCorrectAuth(t *testing.T) {
 	receiver := &fakePushReceiver{}
-	handler := NewPushHandler(receiver, "secret")
+	handler := NewPushHandler(receiver, "secret", 1<<20)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("body"))
 	req.Header.Set("X-Key", "foo")
@@ -93,6 +93,37 @@ func TestNewPushHandlerAcceptsCorrectAuth(t *testing.T) {
 	}
 	if len(receiver.calls) != 1 {
 		t.Fatalf("expected 1 ApplyPush call, got %d", len(receiver.calls))
+	}
+}
+
+func TestNewPushHandlerRejectsOversizedBody(t *testing.T) {
+	receiver := &fakePushReceiver{}
+	handler := NewPushHandler(receiver, "", 10) // 10-byte limit
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("this body is way more than ten bytes"))
+	req.Header.Set("X-Key", "foo")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", rec.Code)
+	}
+	if len(receiver.calls) != 0 {
+		t.Fatal("expected ApplyPush not to be called for an oversized push")
+	}
+}
+
+func TestNewPushHandlerAcceptsBodyAtExactlyTheLimit(t *testing.T) {
+	receiver := &fakePushReceiver{}
+	handler := NewPushHandler(receiver, "", 10) // 10-byte limit
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/push", strings.NewReader("1234567890")) // exactly 10 bytes
+	req.Header.Set("X-Key", "foo")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 }
 
@@ -185,6 +216,20 @@ func TestNewSetPeersHandlerRejectsInvalidBody(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestNewSetPeersHandlerRejectsOversizedBody(t *testing.T) {
+	registry := NewRegistry("", nil)
+	handler := NewSetPeersHandler(registry, "")
+
+	huge := `{"peers":["` + strings.Repeat("a", 2<<20) + `"]}` // >1 MiB
+	req := httptest.NewRequest(http.MethodPut, "/internal/peers", strings.NewReader(huge))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", rec.Code)
 	}
 }
 

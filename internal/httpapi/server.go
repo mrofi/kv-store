@@ -45,7 +45,7 @@ func NewServer(svc KVService, registry *peers.Registry, internalAuthToken string
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", handleReadyz(svc))
 
-	mux.Handle("POST /internal/push", peers.NewPushHandler(svc, internalAuthToken))
+	mux.Handle("POST /internal/push", peers.NewPushHandler(svc, internalAuthToken, maxValueSize))
 	mux.Handle("POST /internal/delete", peers.NewDeleteHandler(svc, internalAuthToken))
 	mux.Handle("PUT /internal/peers", peers.NewSetPeersHandler(registry, internalAuthToken))
 
