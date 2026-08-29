@@ -1,5 +1,7 @@
 # kv-store
 
+🇮🇩 [Baca dalam Bahasa Indonesia](README.id.md)
+
 A distributed key-value store backed by S3, with in-memory LRU caching,
 peer-to-peer cache warming, native versioning, and optional AES-256
 encryption — no separate database cluster required.
