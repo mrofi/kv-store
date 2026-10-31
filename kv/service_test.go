@@ -810,3 +810,32 @@ func TestApplyPushConcurrentPushesConvergeToNewest(t *testing.T) {
 		t.Fatalf("cached value = %q, want %q (the push with the latest UpdatedAt must always win)", got.Value, want)
 	}
 }
+
+func TestListReadsFromS3NotTheCache(t *testing.T) {
+	cache := store.NewCache(0)
+	s3 := store.NewFakeS3Store()
+	svc := NewService(cache, s3, nil, 10, 0)
+	ctx := context.Background()
+
+	// "p.b" is only in S3 (this instance never saw it), "p.a" is in both.
+	if _, err := s3.Put(ctx, "p.b", []byte("v")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	if _, err := svc.Put(ctx, "p.a", []byte("v")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+	if err := svc.Delete(ctx, "p.a"); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+	if _, err := svc.Put(ctx, "p.c", []byte("v")); err != nil {
+		t.Fatalf("Put returned error: %v", err)
+	}
+
+	got, err := svc.List(ctx, "p.", 0)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(got) != 2 || got[0] != "p.b" || got[1] != "p.c" {
+		t.Fatalf("List = %v, want [p.b p.c]", got)
+	}
+}

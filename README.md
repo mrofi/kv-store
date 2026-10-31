@@ -175,6 +175,11 @@ mux.Handle("PUT /internal/peers", peers.NewSetPeersHandler(registry, authToken))
 // use the engine directly:
 entry, err := svc.Put(ctx, "my-key", []byte("value"))
 entry, stale, err := svc.Get(ctx, "my-key")
+
+// list existing keys by prefix (library only - not exposed over HTTP).
+// Returns up to limit keys (at most store.MaxListLimit, one S3 page),
+// sorted, omitting deleted ones, always read from S3 rather than the cache:
+keys, err := svc.List(ctx, "user_1.notes.", 100)
 ```
 
 Pass `nil` as the pusher if you don't need multi-instance replication —

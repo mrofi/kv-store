@@ -197,3 +197,31 @@ func TestEncryptedS3StoreRoundTripAgainstRealS3(t *testing.T) {
 		t.Fatalf("got value %q, want top-secret-value", got.Value)
 	}
 }
+
+func TestAWSS3StoreListByPrefix(t *testing.T) {
+	s3store := newTestStore(t)
+	ctx := context.Background()
+	prefix := uniqueKey("list-test") + "."
+
+	for _, k := range []string{"b", "a", "gone"} {
+		if _, err := s3store.Put(ctx, prefix+k, []byte("v")); err != nil {
+			t.Fatalf("Put(%q) failed: %v", k, err)
+		}
+	}
+	if err := s3store.Delete(ctx, prefix+"gone"); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	got, err := s3store.List(ctx, prefix, 0)
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(got) != 2 || got[0] != prefix+"a" || got[1] != prefix+"b" {
+		t.Fatalf("List = %v, want [%sa %sb] (deleted key omitted, internal kv/ prefix stripped)", got, prefix, prefix)
+	}
+
+	got, err = s3store.List(ctx, prefix, 1)
+	if err != nil || len(got) != 1 || got[0] != prefix+"a" {
+		t.Fatalf("List(limit 1) = %v, %v; want [%sa]", got, err, prefix)
+	}
+}

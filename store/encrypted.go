@@ -99,6 +99,11 @@ func (e *EncryptedS3Store) ListVersions(ctx context.Context, key string) ([]Obje
 	return e.inner.ListVersions(ctx, key)
 }
 
+// List passes straight through: only values are encrypted, never keys.
+func (e *EncryptedS3Store) List(ctx context.Context, prefix string, limit int) ([]string, error) {
+	return e.inner.List(ctx, prefix, limit)
+}
+
 func (e *EncryptedS3Store) Delete(ctx context.Context, key string) error {
 	return e.inner.Delete(ctx, key)
 }

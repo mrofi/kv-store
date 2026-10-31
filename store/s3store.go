@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -147,6 +148,32 @@ func (s *AWSS3Store) ListVersions(ctx context.Context, key string) ([]ObjectVers
 		return versions[i].LastModified.After(versions[j].LastModified)
 	})
 	return versions, nil
+}
+
+func (s *AWSS3Store) List(ctx context.Context, prefix string, limit int) ([]string, error) {
+	limit = clampListLimit(limit)
+	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(s.bucket),
+		Prefix:  aws.String(objectKey(prefix)),
+		MaxKeys: aws.Int32(int32(limit)),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	keys := make([]string, 0, len(out.Contents))
+	for _, obj := range out.Contents {
+		keys = append(keys, strings.TrimPrefix(aws.ToString(obj.Key), objectKey("")))
+	}
+	return keys, nil
+}
+
+// clampListLimit applies List's documented limit rules.
+func clampListLimit(limit int) int {
+	if limit <= 0 || limit > MaxListLimit {
+		return MaxListLimit
+	}
+	return limit
 }
 
 func (s *AWSS3Store) Delete(ctx context.Context, key string) error {

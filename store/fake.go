@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -131,6 +133,24 @@ func (f *FakeS3Store) ListVersions(ctx context.Context, key string) ([]ObjectVer
 		})
 	}
 	return out, nil
+}
+
+func (f *FakeS3Store) List(ctx context.Context, prefix string, limit int) ([]string, error) {
+	limit = clampListLimit(limit)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keys := make([]string, 0)
+	for key, recs := range f.versions {
+		if strings.HasPrefix(key, prefix) && len(recs) > 0 && !recs[len(recs)-1].isDeleteMarker {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) > limit {
+		keys = keys[:limit]
+	}
+	return keys, nil
 }
 
 func (f *FakeS3Store) Delete(ctx context.Context, key string) error {

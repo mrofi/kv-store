@@ -184,3 +184,24 @@ func TestEncryptProducesDifferentCiphertextEachTime(t *testing.T) {
 		t.Fatal("expected different ciphertext for identical plaintext due to random nonces")
 	}
 }
+
+func TestEncryptedStoreListPassesThrough(t *testing.T) {
+	inner := NewFakeS3Store()
+	enc, err := NewEncryptedS3Store(inner, make([]byte, 32))
+	if err != nil {
+		t.Fatalf("NewEncryptedS3Store returned error: %v", err)
+	}
+	for _, k := range []string{"p.a", "p.b", "q.a"} {
+		if _, err := enc.Put(context.Background(), k, []byte("secret")); err != nil {
+			t.Fatalf("Put returned error: %v", err)
+		}
+	}
+
+	got, err := enc.List(context.Background(), "p.", 10)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(got) != 2 || got[0] != "p.a" || got[1] != "p.b" {
+		t.Fatalf("List = %v, want [p.a p.b]", got)
+	}
+}

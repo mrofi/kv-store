@@ -132,6 +132,14 @@ func (s *Service) ListVersions(ctx context.Context, key string) ([]store.ObjectV
 	return s.s3.ListVersions(ctx, key)
 }
 
+// List returns up to limit existing keys starting with prefix, in
+// lexicographic order (limit <= 0 means store.MaxListLimit, the most one
+// call returns). It always asks S3 directly: the in-memory cache only
+// holds keys this instance happens to have seen, so it can't answer it.
+func (s *Service) List(ctx context.Context, prefix string, limit int) ([]string, error) {
+	return s.s3.List(ctx, prefix, limit)
+}
+
 // Ping reports whether S3 is reachable, for readiness checks. It's
 // deliberately not the same thing as liveness: S3 being briefly
 // unreachable doesn't mean this process is broken and needs restarting,

@@ -186,6 +186,12 @@ mux.Handle("PUT /internal/peers", peers.NewSetPeersHandler(registry, authToken))
 // pakai engine-nya langsung:
 entry, err := svc.Put(ctx, "my-key", []byte("value"))
 entry, stale, err := svc.Get(ctx, "my-key")
+
+// daftar key yang ada berdasarkan prefix (hanya library - tidak lewat HTTP).
+// Mengembalikan maks. limit key (paling banyak store.MaxListLimit, satu
+// halaman S3), terurut, tanpa key yang sudah dihapus, selalu dibaca dari S3
+// bukan cache:
+keys, err := svc.List(ctx, "user_1.notes.", 100)
 ```
 
 Berikan `nil` sebagai pusher jika Anda tidak butuh replikasi
